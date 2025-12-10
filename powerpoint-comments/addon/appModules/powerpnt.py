@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.9"
+ADDON_VERSION = "0.0.10"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -51,6 +51,9 @@ class AppModule(AppModule):
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""
+        # CRITICAL: Call parent's implementation first to preserve built-in functionality
+        super().event_appModule_gainFocus()
+
         log.info("PowerPoint Comments: App gained focus")
         if self._connect_to_powerpoint():
             if self._has_active_presentation():
