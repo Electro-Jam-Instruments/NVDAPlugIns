@@ -4,6 +4,17 @@
 
 This document contains distilled knowledge for automating Microsoft PowerPoint via COM, specifically for comment navigation.
 
+## Target Environment
+
+| Component | Version |
+|-----------|---------|
+| PowerPoint | Microsoft 365 (16.0.19426+) |
+| Office Automation | COM via comtypes 1.4.11+ |
+| NVDA Minimum | 2025.1 |
+| NVDA Tested | 2025.3.2 |
+
+**Note:** User's system runs Office 16.0.19426.20170.
+
 ## Reference Files
 
 | Topic | File | What It Contains |

@@ -4,6 +4,18 @@
 
 This document contains distilled knowledge for Windows UI Automation, specifically for focusing PowerPoint's Comments pane.
 
+## Target Environment
+
+| Component | Version |
+|-----------|---------|
+| Windows | Windows 11 25H2 (10.0.26200+) |
+| UIA Interface | IUIAutomation6 |
+| NVDA Minimum | 2025.1 |
+| NVDA Tested | 2025.3.2 |
+| Python | 3.11.9 (32-bit, within NVDA) |
+
+**Note:** User's system runs Windows 11 25H2 (10.0.26200.7309), IUIAutomation6.
+
 ## Reference Files
 
 | Topic | File | What It Contains |

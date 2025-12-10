@@ -22,9 +22,9 @@ Accessible navigation for PowerPoint comments using NVDA screen reader.
 
 ## Requirements
 
-- NVDA 2023.1 or later
+- NVDA 2025.1 or later
 - Microsoft PowerPoint 365 or 2019+
-- Windows 10/11
+- Windows 10/11 (64-bit)
 
 ## Debugging
 

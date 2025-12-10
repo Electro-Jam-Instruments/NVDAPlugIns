@@ -1574,8 +1574,8 @@ author = [Your Name]
 version = 1.0.0
 url = [Your URL]
 docFileName = readme.html
-minimumNVDAVersion = 2023.1
-lastTestedNVDAVersion = 2025.1
+minimumNVDAVersion = 2025.1
+lastTestedNVDAVersion = 2025.3.2
 ```
 
 ---

@@ -38,14 +38,17 @@
 
 ### 3. NVDA Version Compatibility
 
-**Decision:** Target NVDA 2023.1+ with lastTested 2024.4
+**Decision:** Target NVDA 2025.1+ with lastTested 2025.3.2
 **Date:** December 2025
-**Status:** Final
+**Status:** Updated
 
 **Rationale:**
-- 2023.1 is widely deployed
-- Avoids deprecated API concerns
-- Matches current NVDA addon ecosystem norms
+- Always target latest stable NVDA release
+- User's system runs NVDA 2025.3.2
+- Ensures access to newest APIs and improvements
+- NVDA 2025.1 adds IUIAutomation6, improved speech, Remote Access
+
+**Version Policy:** Update minimum and lastTested versions when new stable NVDA releases become available.
 
 ---
 

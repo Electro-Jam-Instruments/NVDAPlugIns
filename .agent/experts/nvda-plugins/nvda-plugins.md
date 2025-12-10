@@ -4,6 +4,18 @@
 
 This document contains distilled knowledge for developing NVDA addons, specifically for PowerPoint integration.
 
+## Target NVDA Version
+
+| Field | Value |
+|-------|-------|
+| Minimum Version | 2025.1 |
+| Last Tested | 2025.3.2 |
+| Documentation | https://www.nvaccess.org/files/nvda/documentation/developerGuide.html |
+
+**Policy:** Always target the latest stable NVDA release. Update these values when new stable versions are released.
+
+**Note:** User's system runs NVDA 2025.3.2, comtypes 1.4.11, Python 3.11.9 (32-bit).
+
 ## Reference Files
 
 | Topic | File | What It Contains |

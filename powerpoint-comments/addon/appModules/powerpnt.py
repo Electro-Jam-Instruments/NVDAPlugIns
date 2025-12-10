@@ -30,7 +30,7 @@ class AppModule(appModuleHandler.AppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
-        log.info("PowerPoint Comments addon initialized (v0.0.2)")
+        log.info("PowerPoint Comments addon initialized (v0.0.3)")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""

@@ -64,9 +64,11 @@ name = addonName
 summary = "Description with spaces"
 version = 0.0.1
 author = "Name <email>"
-minimumNVDAVersion = 2023.1
-lastTestedNVDAVersion = 2024.4
+minimumNVDAVersion = 2025.1
+lastTestedNVDAVersion = 2025.3.2
 ```
+
+**Version Policy:** Always target the latest stable NVDA release (currently 2025.1 minimum, 2025.3.2 tested).
 
 For full template, see `REPO_STRUCTURE.md` > manifest.ini Template section.
 
