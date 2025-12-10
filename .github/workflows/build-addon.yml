@@ -1,0 +1,120 @@
+# Build and Release NVDA Addon
+#
+# Triggers on tags matching: pluginname-vX.X.X or pluginname-vX.X.X-beta
+#
+# Beta tags (ending in -beta) create pre-releases
+# Release tags (no suffix) create stable releases
+
+name: Build NVDA Addon
+
+on:
+  push:
+    tags:
+      - '*-v[0-9]+.[0-9]+.[0-9]+'
+      - '*-v[0-9]+.[0-9]+.[0-9]+-beta'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Parse tag info
+        id: tag_info
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          # Extract plugin name (everything before -vX.X.X)
+          PLUGIN_NAME=$(echo "$TAG" | sed 's/-v[0-9]*\.[0-9]*\.[0-9]*.*$//')
+          echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
+
+          # Extract version (X.X.X, without -beta suffix)
+          VERSION=$(echo "$TAG" | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if beta
+          if [[ "$TAG" == *"-beta" ]]; then
+            echo "is_beta=true" >> $GITHUB_OUTPUT
+            echo "release_name=$PLUGIN_NAME v$VERSION Beta" >> $GITHUB_OUTPUT
+          else
+            echo "is_beta=false" >> $GITHUB_OUTPUT
+            echo "release_name=$PLUGIN_NAME v$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Parsed: plugin=$PLUGIN_NAME, version=$VERSION, tag=$TAG"
+
+      - name: Validate manifest version
+        run: |
+          PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
+          TAG_VERSION="${{ steps.tag_info.outputs.version }}"
+
+          MANIFEST_PATH="$PLUGIN_NAME/addon/manifest.ini"
+
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "Error: manifest.ini not found at $MANIFEST_PATH"
+            exit 1
+          fi
+
+          MANIFEST_VERSION=$(grep -oP '^version\s*=\s*\K[0-9]+\.[0-9]+\.[0-9]+' "$MANIFEST_PATH")
+
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match manifest version ($MANIFEST_VERSION)"
+            echo "Please update manifest.ini using: python build-tools/bump_version.py $PLUGIN_NAME $TAG_VERSION"
+            exit 1
+          fi
+
+          echo "Version validated: $TAG_VERSION"
+
+      - name: Build addon
+        run: |
+          PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
+          python build-tools/build_addon.py "$PLUGIN_NAME"
+
+      - name: Find built addon
+        id: find_addon
+        run: |
+          PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
+          VERSION="${{ steps.tag_info.outputs.version }}"
+
+          ADDON_FILE="$PLUGIN_NAME/$PLUGIN_NAME-$VERSION.nvda-addon"
+
+          if [ ! -f "$ADDON_FILE" ]; then
+            echo "Error: Built addon not found at $ADDON_FILE"
+            exit 1
+          fi
+
+          echo "addon_path=$ADDON_FILE" >> $GITHUB_OUTPUT
+          echo "addon_name=$PLUGIN_NAME-$VERSION.nvda-addon" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ steps.tag_info.outputs.release_name }}
+          prerelease: ${{ steps.tag_info.outputs.is_beta == 'true' }}
+          files: ${{ steps.find_addon.outputs.addon_path }}
+          body: |
+            ## ${{ steps.tag_info.outputs.release_name }}
+
+            **Plugin:** ${{ steps.tag_info.outputs.plugin_name }}
+            **Version:** ${{ steps.tag_info.outputs.version }}
+            **Type:** ${{ steps.tag_info.outputs.is_beta == 'true' && 'Beta (Pre-release)' || 'Stable Release' }}
+
+            ### Installation
+
+            1. Download the `.nvda-addon` file below
+            2. Double-click to install
+            3. Restart NVDA when prompted
+
+            ### Download
+
+            [${{ steps.find_addon.outputs.addon_name }}](${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/${{ steps.find_addon.outputs.addon_name }})
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

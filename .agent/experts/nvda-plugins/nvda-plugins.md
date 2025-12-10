@@ -4,6 +4,17 @@
 
 This document contains distilled knowledge for developing NVDA addons, specifically for PowerPoint integration.
 
+## Reference Files
+
+| Topic | File | What It Contains |
+|-------|------|------------------|
+| Decisions | `decisions.md` | Rationale for technical choices |
+| Current Implementation | `MVP_IMPLEMENTATION_PLAN.md` | Phase-by-phase code |
+| Directory Structure | `REPO_STRUCTURE.md` | Addon folder layout, manifest template |
+| Build & Package | `nvda-addon-packager` agent | Build scripts, version management |
+| Testing | `accessibility-tester` agent | Test strategies, debugging |
+| Research | `research/` folder | Deep analysis documents |
+
 ## NVDA Addon Structure
 
 ```
@@ -33,18 +44,26 @@ addon/
 
 **For PowerPoint:** Use App Module (`appModules/powerpnt.py`)
 
-### manifest.ini Template
+### CRITICAL: manifest.ini Quoting Rules
 
-```ini
-name = addon-name
-summary = Short description
-description = Longer description of features
-author = Your Name
-version = 1.0.0
-url = https://github.com/...
-minimumNVDAVersion = 2023.1
-lastTestedNVDAVersion = 2024.4
-```
+**This is a common source of errors that can take hours to debug!**
+
+| Field Type | Quote Style | Example |
+|------------|-------------|---------|
+| Single word (no spaces) | No quotes | `name = addonName` |
+| Single line WITH spaces | `"double quotes"` | `summary = "My Addon Name"` |
+| Multi-line text | `"""triple quotes"""` | `description = """Long text here"""` |
+| Version numbers | No quotes | `version = 0.1.0` |
+| URLs | No quotes | `url = https://github.com/...` |
+
+**Common Mistakes:**
+- Using quotes everywhere - WRONG for single words
+- Forgetting quotes on text with spaces - WILL FAIL
+- Using smart quotes instead of straight quotes - WILL FAIL
+
+**If NVDA rejects your addon, check the manifest quoting first!**
+
+For full manifest template, see `REPO_STRUCTURE.md`.
 
 ## NVDA APIs
 
@@ -115,27 +134,33 @@ NVDA's built-in `powerpnt.py` (~1500 lines) provides:
 
 **Key limitation:** No native comment support
 
-### Extending PowerPoint Support
+### Extending Built-in App Modules
+
+**IMPORTANT:** To extend NVDA's built-in PowerPoint support (not replace it):
 
 ```python
 # appModules/powerpnt.py
-import appModuleHandler
-from comtypes.client import GetActiveObject
-
-class AppModule(appModuleHandler.AppModule):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._ppt_app = None
-
-    def event_appModule_gainFocus(self):
-        self._connect()
-
-    def _connect(self):
-        try:
-            self._ppt_app = GetActiveObject("PowerPoint.Application")
-        except Exception:
-            self._ppt_app = None
+from nvdaBuiltin.appModules.powerpnt import *  # Inherit all existing support
 ```
+
+This pattern inherits all existing PowerPoint support so we only add comment features on top.
+
+For full implementation, see `MVP_IMPLEMENTATION_PLAN.md` Phase 1.
+
+### Logging for Debugging
+
+Always add logging to track event firing:
+
+```python
+import logging
+log = logging.getLogger(__name__)
+
+log.debug("Method called")
+log.info("Important event")
+log.error("Something failed")
+```
+
+View logs: NVDA menu > Tools > View Log (or NVDA+F1)
 
 ### Overlay Classes
 
@@ -172,20 +197,16 @@ for i in range(1, comments.Count + 1):
     print(comment.Text)
 ```
 
-## Packaging
+## Testing During Development
 
-### Build Process
+### Scratchpad Testing (Fastest Iteration)
 
-1. Zip the `addon/` directory contents
-2. Rename `.zip` to `.nvda-addon`
-3. Users double-click to install
+1. Copy module to: `%APPDATA%\nvda\scratchpad\appModules\powerpnt.py`
+2. Enable in NVDA: Settings > Advanced > Developer Scratchpad
+3. Reload plugins: NVDA+Ctrl+F3
+4. Check NVDA log for errors (NVDA+F1)
 
-### Testing During Development
-
-- NVDA Scratchpad: `%APPDATA%\nvda\scratchpad\`
-- Enable in NVDA settings: Advanced > Developer Scratchpad
-- Copy `appModules/powerpnt.py` to scratchpad
-- Restart NVDA or reload plugins (NVDA+Ctrl+F3)
+For full testing workflow, see the `accessibility-tester` agent.
 
 ## Common Gotchas
 

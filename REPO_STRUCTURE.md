@@ -23,7 +23,7 @@ NVDA-Plugins/
 │
 ├── build-tools/                 # Shared build utilities
 │   ├── build_addon.py           # Script to package .nvda-addon files
-│   └── common_buildVars.py      # Shared build configuration
+│   └── bump_version.py          # Script to update version in manifest.ini
 │
 ├── powerpoint-comments/         # PowerPoint Comments Plugin
 │   ├── README.md                # Plugin-specific documentation
@@ -58,64 +58,94 @@ NVDA-Plugins/
 
 ## Release Strategy
 
+**Full documentation: See [RELEASE.md](RELEASE.md)**
+
+### Release Types
+
+| Type | Tag Pattern | GitHub Release |
+|------|-------------|----------------|
+| Beta | `pluginname-vX.X.X-beta` | Pre-release |
+| Release | `pluginname-vX.X.X` | Stable |
+
 ### Tagging Convention
 
-Each plugin uses its own tag prefix:
-
 ```
-powerpoint-comments-v1.0.0      # Stable release
-powerpoint-comments-v1.1.0-beta # Beta/pre-release
-future-plugin-v2.0.0            # Different plugin
+powerpoint-comments-v0.0.1-beta  # Beta for testing
+powerpoint-comments-v0.0.1       # Stable release
+powerpoint-comments-v0.0.2-beta  # Next beta
 ```
 
-### Release Workflow
+### Release Workflow (Automated)
 
-1. **Development** happens on `main` branch in plugin directory
-2. **When ready to release:**
-   - Update `CHANGELOG.md` in plugin directory
-   - Update version in `buildVars.py` and `manifest.ini`
-   - Create tag: `git tag powerpoint-comments-v1.0.0`
-   - Push tag: `git push origin powerpoint-comments-v1.0.0`
-3. **GitHub Actions** (optional) auto-builds and creates release
-4. **Manual alternative:** Build locally, create GitHub release, upload asset
+1. **Update version** (manual, only when requested):
+   ```bash
+   python build-tools/bump_version.py powerpoint-comments 0.0.1
+   git add powerpoint-comments/addon/manifest.ini
+   git commit -m "Bump powerpoint-comments to v0.0.1"
+   git push origin main
+   ```
+
+2. **Create and push tag:**
+   ```bash
+   git tag powerpoint-comments-v0.0.1-beta  # or without -beta
+   git push origin powerpoint-comments-v0.0.1-beta
+   ```
+
+3. **GitHub Actions automatically:**
+   - Validates tag version matches manifest.ini
+   - Builds .nvda-addon package
+   - Creates GitHub release (pre-release for beta)
+   - Uploads addon file
 
 ### Download URLs
 
-Direct download links follow this pattern:
+After automated release:
 
 ```
-https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v1.0.0/powerpoint-comments-1.0.0.nvda-addon
+https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.0.1-beta/powerpoint-comments-0.0.1.nvda-addon
 ```
 
-For latest stable (using GitHub API or redirect):
-```
-https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/latest/download/powerpoint-comments.nvda-addon
-```
+### Version Management
 
-Note: "Latest" only works if you want ONE plugin to be "latest" - for multi-plugin repos, use explicit version tags.
+**IMPORTANT:** Version updates are manual and controlled.
+
+- NVDA only loads addons when version changes
+- Always bump version before testing on a system with addon installed
+- Use `bump_version.py` script to update manifest.ini
 
 ## Build Process
 
 ### Building a Single Plugin
 
 ```bash
-cd powerpoint-comments
-python ../build-tools/build_addon.py
-# Output: powerpoint-comments-1.0.0.nvda-addon
+python build-tools/build_addon.py powerpoint-comments
+# Output: powerpoint-comments/powerpoint-comments-0.0.1.nvda-addon
 ```
 
 ### manifest.ini Template
 
+**CRITICAL: Quoting rules matter! See notes below.**
+
 ```ini
-name = powerpoint-comments
-summary = Accessible PowerPoint Comment Navigation
-description = Navigate and read PowerPoint comments with keyboard shortcuts and automatic announcements
-author = Electro Jam Instruments
+name = powerPointComments
+summary = "Accessible PowerPoint Comment Navigation"
+description = """Navigate and read PowerPoint comments with keyboard shortcuts and automatic announcements."""
+author = "Electro Jam Instruments <contact@electrojam.com>"
 url = https://github.com/Electro-Jam-Instruments/NVDAPlugIns/tree/main/powerpoint-comments
-version = 1.0.0
+version = 0.0.1
 minimumNVDAVersion = 2023.1
 lastTestedNVDAVersion = 2024.4
 ```
+
+**manifest.ini Quoting Rules:**
+| Field Type | Quote Style | Example |
+|------------|-------------|---------|
+| Single word (no spaces) | No quotes | `name = addonName` |
+| Single line WITH spaces | `"double quotes"` | `summary = "My Addon"` |
+| Multi-line text | `"""triple quotes"""` | `description = """Text"""` |
+| Version/URL | No quotes | `version = 1.0.0` |
+
+**If NVDA rejects your addon, check quoting first!**
 
 ### buildVars.py Template
 
@@ -124,7 +154,7 @@ addon_info = {
     "addon_name": "powerpoint-comments",
     "addon_summary": "Accessible PowerPoint Comment Navigation",
     "addon_description": "Navigate and read PowerPoint comments with keyboard shortcuts",
-    "addon_version": "1.0.0",
+    "addon_version": "0.0.1",
     "addon_author": "Electro Jam Instruments",
     "addon_url": "https://github.com/Electro-Jam-Instruments/NVDAPlugIns",
     "addon_minimumNVDAVersion": "2023.1",

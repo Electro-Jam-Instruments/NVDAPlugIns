@@ -4,6 +4,16 @@
 
 This document contains distilled knowledge for automating Microsoft PowerPoint via COM, specifically for comment navigation.
 
+## Reference Files
+
+| Topic | File | What It Contains |
+|-------|------|------------------|
+| Decisions | `decisions.md` | Rationale for technical choices |
+| Current Implementation | `MVP_IMPLEMENTATION_PLAN.md` | Phase-by-phase code |
+| UIA Focus Management | `windows-accessibility` agent | Comments pane focus |
+| COM Library Choice | `nvda-plugins` agent | Why comtypes not pywin32 |
+| Research | `research/` folder | Deep analysis documents |
+
 ## COM Object Model
 
 ### Hierarchy
@@ -130,6 +140,8 @@ for cmd in ["ReviewShowComments", "ShowComments", "CommentsPane"]:
 1. Check if pane is visible (via UIA)
 2. If not visible, execute command
 
+**Note:** For UIA focus management after opening the pane, see the `windows-accessibility` agent.
+
 ## Slide Navigation
 
 ### Get Current Slide
@@ -240,12 +252,3 @@ count = safe_com_call(lambda: slide.Comments.Count, fallback=0)
 2. **Batch reads** - Get all comments at once, not one at a time
 3. **Avoid polling** - Use events when possible
 4. **COM is synchronous** - Long operations block; consider threading
-
-## Research Files
-
-See `research/` folder for detailed analysis:
-- `PowerPoint-COM-Automation-Research.md` - Full COM API details
-- `PowerPoint_Comment_Focus_Navigation_Research.md` - Comment pane focus
-- `powerpoint_mention_detection_research.md` - @mention parsing
-- `PowerPoint-Comment-Resolution-UIA-Research.md` - Resolution status
-- `PowerPoint-Comment-Resolution-LockedFile-Access-Research.md` - File locking issues

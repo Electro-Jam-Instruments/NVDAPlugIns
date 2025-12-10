@@ -1,8 +1,19 @@
 # Local AI Vision - Expert Knowledge
 
-## Status: DEFERRED
+## Status: DEFERRED - POST-MVP FEATURE
 
-This feature is deferred to post-MVP. This document preserves research for future implementation.
+**This feature is NOT part of the MVP implementation.**
+
+This document preserves research and architectural decisions for future implementation of AI-powered image descriptions. The MVP focuses on comment navigation only.
+
+See `decisions.md` for the decision to defer this feature.
+
+## Reference Files
+
+**Related Documentation:**
+- `decisions.md` - Decision log for deferring AI vision features
+- `research/local-vision-model-analysis.md` - Model comparison and selection research
+- `research/surface_laptop4_complete_guide.md` - Hardware optimization guide for AMD GPU
 
 ## Overview
 
@@ -122,13 +133,7 @@ class ImageDescriber:
 3. **SmartArt** - "Organizational chart with 4 levels"
 4. **Alt text suggestions** - Generate for content creators
 
-## Research Files
-
-See `research/` folder:
-- `local-vision-model-analysis.md` - Model comparison
-- `surface_laptop4_complete_guide.md` - Hardware optimization
-
-## Next Steps (When Resuming)
+## Next Steps (When Resuming This Deferred Feature)
 
 1. Set up Florence-2 with ONNX Runtime + DirectML
 2. Create async wrapper for NVDA integration

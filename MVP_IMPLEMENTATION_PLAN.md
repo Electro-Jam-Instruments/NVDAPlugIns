@@ -17,9 +17,10 @@ This plan outlines the implementation of an NVDA plugin focused on **enhanced co
 ### HIGH PRIORITY (This Plan)
 1. **View Management** - Detect and auto-switch to Normal view
 2. **Slide Change Detection** - Automatic comment status announcement on slide change
-3. **Comment Navigation** - Focus-based navigation within comments
-4. **@mention Detection** - Find comments mentioning current user
-5. PowerPoint 365 Modern Comments only
+3. **Focus First Comment** - Open Comments pane and focus first comment
+4. **Slide Navigation from Comments** - Move to next/prev slide while in Comments pane
+5. **@mention Detection** - Find comments mentioning current user
+6. PowerPoint 365 Modern Comments only
 
 ### Core User Experience
 ```
@@ -38,13 +39,14 @@ HAS COMMENTS → Open Comments pane (if closed)
              → Move focus to first comment
     ↓
 User can then:
-  - Navigate comments with Ctrl+Alt+PageUp/Down
-  - Change slides with PageUp/Down (triggers new check)
+  - Navigate comments with Arrow keys (native behavior)
+  - Change slides with shortcut (while in Comments pane)
   - Use native keys (Tab, Arrow) within Comments pane
 ```
 
 ### POST-MVP
 - Slide comment summary (Ctrl+Alt+S)
+- Comment-to-comment navigation (Ctrl+Alt+PageUp/Down) - if arrow keys prove insufficient
 
 ### BACKLOGGED
 - Jump to unresolved comments (requires OOXML file parsing - complex file locking issues)
@@ -111,13 +113,42 @@ Based on research findings:
 
 **Priority:** HIGHEST - Foundation for everything else
 
+### 1.0 Logging Strategy (Critical for Debugging)
+
+**Why:** Events may not fire as expected. Logging lets us verify event handling without visual feedback.
+
+```python
+import logging
+log = logging.getLogger(__name__)
+
+# Usage throughout module:
+log.debug("Method called with args")   # Detailed tracing
+log.info("Important event occurred")   # Key milestones
+log.error(f"Operation failed: {e}")    # Errors
+```
+
+**View logs:** NVDA menu > Tools > View Log (or NVDA+F1)
+
+**Key log points for Phase 1:**
+- `__init__`: "PowerPoint Comments addon initialized"
+- `event_appModule_gainFocus`: "event_appModule_gainFocus fired"
+- `_connect_to_powerpoint`: "Connected to PowerPoint COM" or "Failed to connect: {error}"
+- `_get_current_view`: "View type detected: {type}"
+- `_ensure_normal_view`: "Switching view from {old} to Normal" or "Already in Normal view"
+
 ### 1.1 App Module Skeleton
 
 ```python
 # appModules/powerpnt.py
+# First, inherit all built-in PowerPoint support
+from nvdaBuiltin.appModules.powerpnt import *
+
 import appModuleHandler
 from comtypes.client import GetActiveObject
 import ui
+import logging
+
+log = logging.getLogger(__name__)
 
 class AppModule(appModuleHandler.AppModule):
     """Enhanced PowerPoint with comment navigation."""
@@ -134,9 +165,11 @@ class AppModule(appModuleHandler.AppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
+        log.debug("PowerPoint Comments addon initialized")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""
+        log.debug("event_appModule_gainFocus fired")
         self._connect_to_powerpoint()
         self._ensure_normal_view()
 
@@ -144,8 +177,10 @@ class AppModule(appModuleHandler.AppModule):
         """Connect to running PowerPoint instance."""
         try:
             self._ppt_app = GetActiveObject("PowerPoint.Application")
+            log.debug("Connected to PowerPoint COM")
             return True
-        except Exception:
+        except Exception as e:
+            log.error(f"Failed to connect to PowerPoint: {e}")
             self._ppt_app = None
             return False
 
@@ -153,9 +188,11 @@ class AppModule(appModuleHandler.AppModule):
         """Get current PowerPoint view type."""
         try:
             if self._ppt_app and self._ppt_app.ActiveWindow:
-                return self._ppt_app.ActiveWindow.ViewType
-        except Exception:
-            pass
+                view_type = self._ppt_app.ActiveWindow.ViewType
+                log.debug(f"View type detected: {view_type}")
+                return view_type
+        except Exception as e:
+            log.error(f"Failed to get view type: {e}")
         return None
 
     def _ensure_normal_view(self):
@@ -163,11 +200,14 @@ class AppModule(appModuleHandler.AppModule):
         try:
             current_view = self._get_current_view()
             if current_view is not None and current_view != self.PP_VIEW_NORMAL:
+                log.info(f"Switching view from {current_view} to Normal")
                 self._ppt_app.ActiveWindow.ViewType = self.PP_VIEW_NORMAL
                 ui.message("Switched to Normal view")
                 return True
-        except Exception:
-            pass
+            else:
+                log.debug("Already in Normal view")
+        except Exception as e:
+            log.error(f"Failed to switch view: {e}")
         return False
 ```
 
@@ -203,6 +243,134 @@ def _verify_connection(self):
 - Plugin loads cleanly
 - View detection works
 - Auto-switch to Normal view works
+
+---
+
+## Phase 1.1: Package + Deploy Pipeline
+
+**Goal:** Create build and deployment pipeline so addon can be installed on test systems via GitHub
+
+**Priority:** HIGH - Required for testing on separate system
+
+### 1.1.1 Create Addon Directory Structure
+
+```
+powerpoint-comments/
+├── addon/
+│   ├── manifest.ini
+│   └── appModules/
+│       └── powerpnt.py
+├── buildVars.py
+└── README.md
+```
+
+### 1.1.2 manifest.ini
+
+**CRITICAL: Follow quoting rules exactly!**
+
+```ini
+name = powerPointComments
+summary = "Accessible PowerPoint Comment Navigation"
+description = """Navigate and read PowerPoint comments with keyboard shortcuts and automatic announcements."""
+author = "Electro Jam Instruments <contact@electrojam.com>"
+url = https://github.com/Electro-Jam-Instruments/NVDAPlugIns/tree/main/powerpoint-comments
+version = 0.1.0
+minimumNVDAVersion = 2023.1
+lastTestedNVDAVersion = 2024.4
+```
+
+### 1.1.3 Build Script
+
+Create `build-tools/build_addon.py`:
+
+```python
+#!/usr/bin/env python
+"""Build NVDA addon package."""
+import os
+import zipfile
+from pathlib import Path
+
+def build_addon(addon_dir: Path, output_name: str, version: str):
+    """Create .nvda-addon from addon directory."""
+    output_path = addon_dir.parent / f"{output_name}-{version}.nvda-addon"
+
+    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for file_path in addon_dir.rglob('*'):
+            if file_path.is_file() and '__pycache__' not in str(file_path):
+                arcname = file_path.relative_to(addon_dir)
+                zf.write(file_path, arcname)
+
+    print(f"Built: {output_path}")
+    return output_path
+
+if __name__ == "__main__":
+    import sys
+    plugin_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("powerpoint-comments")
+    addon_path = plugin_dir / "addon"
+    build_addon(addon_path, "powerpoint-comments", "0.1.0")
+```
+
+### 1.1.4 GitHub Release Process (Automated)
+
+**See [RELEASE.md](RELEASE.md) for full release management documentation.**
+
+**Version Update (Manual - only when requested):**
+```bash
+python build-tools/bump_version.py powerpoint-comments 0.0.1
+git add powerpoint-comments/addon/manifest.ini
+git commit -m "Bump powerpoint-comments to v0.0.1"
+git push origin main
+```
+
+**Create Beta Release:**
+```bash
+git tag powerpoint-comments-v0.0.1-beta
+git push origin powerpoint-comments-v0.0.1-beta
+```
+
+**Create Stable Release:**
+```bash
+git tag powerpoint-comments-v0.0.1
+git push origin powerpoint-comments-v0.0.1
+```
+
+**What Happens Automatically:**
+1. GitHub Actions triggers on tag push
+2. Validates tag version matches manifest.ini
+3. Builds .nvda-addon package
+4. Creates GitHub release (pre-release for beta, stable for release)
+5. Uploads addon file
+
+**Download URL (after release):**
+```
+https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.0.1-beta/powerpoint-comments-0.0.1.nvda-addon
+```
+
+### 1.1.5 Phase 1.1 Test Checklist
+
+**Build Verification:**
+- [ ] Build script runs without errors
+- [ ] .nvda-addon file created
+- [ ] File size reasonable (should be small, < 50KB)
+
+**GitHub Release:**
+- [ ] Release created with correct tag
+- [ ] .nvda-addon file uploaded
+- [ ] Download link works
+
+**Installation on Test System:**
+- [ ] Download .nvda-addon from GitHub
+- [ ] Double-click to install
+- [ ] NVDA prompts for installation confirmation
+- [ ] Restart NVDA
+- [ ] Open PowerPoint
+- [ ] Check NVDA log for "PowerPoint Comments addon initialized"
+- [ ] Verify Phase 1 functionality works on test system
+
+**Phase 1.1 Exit Criteria:**
+- Build pipeline works
+- Addon installable from GitHub release
+- Phase 1 features work on separate test system
 
 ---
 
@@ -814,16 +982,20 @@ powerpoint-comments/
 
 ### 6.4 manifest.ini
 
+**CRITICAL: Quoting rules matter! No quotes for single words, double quotes for text with spaces, triple quotes for multi-line.**
+
 ```ini
-name = powerpoint-comments
-summary = Accessible PowerPoint Comment Navigation
-description = Automatically announces comment status when changing slides. Navigate comments with keyboard shortcuts. Find @mentions of yourself.
-author = Electro Jam Instruments
+name = powerPointComments
+summary = "Accessible PowerPoint Comment Navigation"
+description = """Automatically announces comment status when changing slides. Navigate comments with keyboard shortcuts. Find @mentions of yourself."""
+author = "Electro Jam Instruments <contact@electrojam.com>"
 version = 1.0.0
 url = https://github.com/Electro-Jam-Instruments/NVDAPlugIns/tree/main/powerpoint-comments
 minimumNVDAVersion = 2023.1
 lastTestedNVDAVersion = 2024.4
 ```
+
+See `.agent/experts/nvda-plugins/nvda-plugins.md` for full quoting rules.
 
 ### 6.5 Release Process
 
@@ -866,12 +1038,10 @@ See [REPO_STRUCTURE.md](REPO_STRUCTURE.md) for complete release workflow.
 | Shortcut | Action |
 |----------|--------|
 | (automatic) | Announce comment status on slide change |
-| Ctrl+Alt+PageDown | Next comment |
-| Ctrl+Alt+PageUp | Previous comment |
-| Ctrl+Alt+Home | First comment |
-| Ctrl+Alt+End | Last comment |
+| Arrow keys | Navigate between comments (native behavior) |
+| Ctrl+Alt+PageDown | Next slide (from Comments pane) |
+| Ctrl+Alt+PageUp | Previous slide (from Comments pane) |
 | Ctrl+Alt+M | Find next comment mentioning me |
-| Ctrl+Alt+R | Refresh comments cache |
 
 ---
 
@@ -880,11 +1050,13 @@ See [REPO_STRUCTURE.md](REPO_STRUCTURE.md) for complete release workflow.
 | Phase | Description | Priority | Dependencies |
 |-------|-------------|----------|--------------|
 | 1 | Foundation + View Management | HIGHEST | None |
-| 2 | Slide Change + Comment Status | HIGH | Phase 1 |
+| 1.1 | Package + Deploy Pipeline | HIGH | Phase 1 |
+| 2 | Slide Change + Comment Status | HIGH | Phase 1.1 |
 | 3 | Focus First Comment | HIGH | Phase 2 |
-| 4 | Comment Navigation | MEDIUM | Phase 3 |
-| 5 | @Mention Detection | MEDIUM | Phase 4 |
-| 6 | Polish + Packaging | Required | All |
+| 3.1 | Slide Navigation from Comments | HIGH | Phase 3 |
+| 4 | @Mention Detection | MEDIUM | Phase 3.1 |
+| 5 | Polish + Packaging | Required | All |
+| 6 | Comment Navigation (if needed) | LOW | Post-MVP if arrow keys insufficient |
 
 ---
 
@@ -907,8 +1079,8 @@ See [REPO_STRUCTURE.md](REPO_STRUCTURE.md) for complete release workflow.
 - [ ] Auto-announces comment status on slide change
 - [ ] Auto-switches to Normal view
 - [ ] Focus lands on first comment
-- [ ] Navigate comments with Ctrl+Alt+PageUp/Down
-- [ ] Boundary handling (no wrap, beep at ends)
+- [ ] Navigate comments with Arrow keys (native)
+- [ ] Navigate slides from Comments pane (Ctrl+Alt+PageUp/Down)
 - [ ] Find comments mentioning current user
 
 ### Full Release

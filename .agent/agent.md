@@ -31,7 +31,9 @@ When working in specific domains, consult these expert files:
 | NVDA Plugin Development | `.agent/experts/nvda-plugins/nvda-plugins.md` | Addon structure, APIs, packaging |
 | PowerPoint Automation | `.agent/experts/powerpoint-automation/powerpoint-automation.md` | COM API, comments, views |
 | Windows Accessibility | `.agent/experts/windows-accessibility/windows-accessibility.md` | UIA, focus management |
+| NVDA Addon Packager | `.agent/experts/nvda-addon-packager/nvda-addon-packager.md` | Build .nvda-addon files, validate manifests |
 | Local AI Vision | `.agent/experts/local-ai-vision/local-ai-vision.md` | Deferred - image descriptions |
+| Accessibility Tester | `.agent/experts/accessibility-tester/accessibility-tester.md` | Test strategies, debugging, log verification |
 
 Each expert folder contains:
 - `{area}.md` - Distilled knowledge summary
@@ -41,11 +43,13 @@ Each expert folder contains:
 ## Current MVP Phases
 
 1. **Foundation + View Management** - App module, view detection, auto-switch to Normal
+1.1. **Package + Deploy Pipeline** - Build script, GitHub release, install on test system
 2. **Slide Change Detection** - Detect changes, announce comment status
 3. **Focus First Comment** - UIA focus to Comments pane
-4. **Comment Navigation** - Ctrl+Alt+PageUp/Down between comments
-5. **@Mention Detection** - Find comments mentioning current user
-6. **Polish + Packaging** - Error handling, .nvda-addon packaging
+3.1. **Slide Navigation from Comments** - Navigate slides while in Comments pane
+4. **@Mention Detection** - Find comments mentioning current user
+5. **Polish + Packaging** - Error handling, final release
+6. **Comment Navigation (optional)** - If arrow keys prove insufficient
 
 ## Technical Decisions (Summary)
 
@@ -58,6 +62,9 @@ See individual `decisions.md` files in expert folders for full rationale.
 | Focus Management | UIA | Comments pane is UIA-enabled |
 | @Mention Parsing | Regex | No structured API available |
 | View Detection | `ActiveWindow.ViewType` | Returns constants (Normal=9) |
+| Extend vs Replace | `from nvdaBuiltin...import *` | Preserve existing PowerPoint support |
+| Testing Strategy | Manual first, automation post-MVP | Fastest iteration, real SR testing |
+| Debugging | Python logging to NVDA log | Verify events without visual feedback |
 
 ## Accessibility Reminder
 

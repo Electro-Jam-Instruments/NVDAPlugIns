@@ -63,6 +63,103 @@
 
 ---
 
+### 5. manifest.ini Quoting Format
+
+**Decision:** Use specific quoting rules for manifest.ini
+**Date:** December 2025
+**Status:** Final - LEARNED THE HARD WAY
+
+**The Rules:**
+- No quotes for single words: `name = addonName`
+- Double quotes for text with spaces: `summary = "My Addon"`
+- Triple quotes for multi-line: `description = """Long text"""`
+- No quotes for versions/URLs: `version = 0.1.0`
+
+**Why This Matters:**
+- Incorrect quoting causes NVDA to silently reject the addon
+- Error messages are not helpful
+- Took significant debugging time to discover
+
+**Common Failures:**
+- `summary = My Addon Name` → FAILS (needs quotes)
+- `name = "addonName"` → May work but incorrect
+- Using smart quotes (""") instead of straight quotes (""") → FAILS
+
+---
+
+### 6. Extend Built-in PowerPoint Support (Don't Replace)
+
+**Decision:** Use `from nvdaBuiltin.appModules.powerpnt import *` to extend existing support
+**Date:** December 2025
+**Status:** Final
+
+**Rationale:**
+- NVDA has ~1500 lines of existing PowerPoint support
+- Replacing it would break working features
+- Extending allows adding comments without losing existing functionality
+- This is the documented NVDA pattern for app module extensions
+
+**Implementation:**
+```python
+# appModules/powerpnt.py
+from nvdaBuiltin.appModules.powerpnt import *  # Inherit all existing support
+
+class AppModule(appModuleHandler.AppModule):
+    # Add comment features on top
+```
+
+---
+
+### 7. Logging Strategy for Event Debugging
+
+**Decision:** Use Python logging module extensively in Phase 1
+**Date:** December 2025
+**Status:** Final
+
+**Rationale:**
+- Events may not fire as expected
+- Screen reader users cannot see console output
+- NVDA log provides persistent debugging record
+- Can verify behavior without visual feedback
+
+**Implementation:**
+```python
+import logging
+log = logging.getLogger(__name__)
+
+log.debug("Event fired")
+log.info("Important action")
+log.error(f"Failed: {e}")
+```
+
+**View logs:** NVDA menu > Tools > View Log (NVDA+F1)
+
+---
+
+### 8. Testing Strategy - Manual First, Automated Later
+
+**Decision:** Use manual NVDA testing for MVP, consider automation post-MVP
+**Date:** December 2025
+**Status:** Final
+
+**Rationale:**
+- Automated NVDA testing tools exist but are complex to set up
+- Manual testing with scratchpad is fastest for iteration
+- Real screen reader testing catches issues automation misses
+- Automation useful for regression testing after MVP stable
+
+**Manual Testing Workflow:**
+1. Copy to scratchpad: `%APPDATA%\nvda\scratchpad\appModules\`
+2. Enable scratchpad in NVDA settings
+3. Reload plugins: NVDA+Ctrl+F3
+4. Check NVDA log for errors
+
+**Post-MVP Automation Options:**
+- NVDA Testing Driver (C#)
+- Guidepup (JavaScript)
+
+---
+
 ## Backlogged Decisions
 
 ### Comment Resolution Status (Deferred)

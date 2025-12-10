@@ -4,6 +4,24 @@
 
 This document contains distilled knowledge for Windows UI Automation, specifically for focusing PowerPoint's Comments pane.
 
+## Reference Files
+
+| Topic | File | What It Contains |
+|-------|------|------------------|
+| Decisions | `decisions.md` | Rationale for UIA vs COM, window class targeting |
+| Current Implementation | `MVP_IMPLEMENTATION_PLAN.md` | Phase-by-phase code for comment navigation |
+| PowerPoint Data Access | `powerpoint-automation` agent | COM automation for reading comments, slides |
+| NVDA Integration | `nvda-plugins` agent | How to integrate UIA focus in NVDA app module |
+| Research | `research/` folder | Deep UIA analysis documents |
+
+## Cross-References
+
+**Related Agents:**
+- **powerpoint-automation**: Use COM to read comment data, UIA to focus UI elements
+- **nvda-plugins**: Integrate UIA focus operations within NVDA's event system
+
+**Key Relationship:** This agent provides the UIA focus mechanism that works alongside COM data access (from powerpoint-automation) within an NVDA app module (from nvda-plugins).
+
 ## UI Automation Basics
 
 ### What is UIA?
@@ -237,7 +255,10 @@ def is_comments_pane_visible(root):
 4. **Timing matters** - UI needs time to update after commands
 5. **NVDA intercepts focus** - Work with NVDA's focus system, not against it
 
-## Research Files
+## Additional Resources
 
-See `research/` folder:
-- `PowerPoint-UIA-Research.md` - UIA for PowerPoint details
+For detailed research and implementation decisions:
+- See `decisions.md` for rationale behind UIA vs COM choices
+- See `research/PowerPoint-UIA-Research.md` for deep UIA analysis
+- See `powerpoint-automation` agent for COM-based data access patterns
+- See `nvda-plugins` agent for NVDA integration strategies
