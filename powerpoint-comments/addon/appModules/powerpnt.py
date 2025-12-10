@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.10"
+ADDON_VERSION = "0.0.11"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -24,6 +24,7 @@ log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 # Additional imports for our functionality
 from comtypes.client import GetActiveObject
 import ui
+import core  # For callLater - deferred execution
 
 
 # Inherit from the just-imported AppModule (NVDA doc pattern)
@@ -50,16 +51,31 @@ class AppModule(AppModule):
         log.info(f"PowerPoint Comments AppModule instantiated (v{ADDON_VERSION})")
 
     def event_appModule_gainFocus(self):
-        """Called when PowerPoint gains focus."""
-        # CRITICAL: Call parent's implementation first to preserve built-in functionality
-        super().event_appModule_gainFocus()
+        """Called when PowerPoint gains focus.
 
-        log.info("PowerPoint Comments: App gained focus")
-        if self._connect_to_powerpoint():
-            if self._has_active_presentation():
-                self._ensure_normal_view()
-            else:
-                log.debug("No active presentation - skipping view management")
+        IMPORTANT: This is an optional hook - parent class doesn't define it.
+        Do NOT call super() here - it will fail with AttributeError.
+
+        CRITICAL: Must return quickly to allow NVDA to speak focus.
+        All COM work is deferred via core.callLater.
+        """
+        log.info("PowerPoint Comments: App gained focus - deferring initialization")
+        # Defer COM work by 100ms to allow NVDA to process focus and speak
+        core.callLater(100, self._deferred_initialization)
+
+    def _deferred_initialization(self):
+        """Initialize PowerPoint connection after focus event completes.
+
+        Called via core.callLater to prevent blocking NVDA's focus handling.
+        """
+        try:
+            if self._connect_to_powerpoint():
+                if self._has_active_presentation():
+                    self._ensure_normal_view()
+                else:
+                    log.debug("No active presentation - skipping view management")
+        except Exception as e:
+            log.error(f"Deferred initialization failed: {e}")
 
     def _connect_to_powerpoint(self):
         """Connect to running PowerPoint instance."""
