@@ -37,11 +37,11 @@ class AppModule(BuiltinPowerPointAppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
-        log.info("PowerPoint Comments addon initialized (v0.0.7)")
+        log.info("PowerPoint Comments addon initialized (v0.0.8)")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""
-        log.debug("event_appModule_gainFocus fired")
+        log.info("PowerPoint Comments: App gained focus")
         if self._connect_to_powerpoint():
             if self._has_active_presentation():
                 self._ensure_normal_view()
@@ -52,7 +52,7 @@ class AppModule(BuiltinPowerPointAppModule):
         """Connect to running PowerPoint instance."""
         try:
             self._ppt_app = GetActiveObject("PowerPoint.Application")
-            log.debug("Connected to PowerPoint COM")
+            log.info("PowerPoint Comments: Connected to COM")
             return True
         except OSError as e:
             # WinError -2147221021: Operation unavailable
