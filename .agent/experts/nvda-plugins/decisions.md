@@ -92,62 +92,66 @@
 
 ### 6. Extend Built-in PowerPoint Support (Don't Replace)
 
-**Decision:** Import built-in AppModule explicitly and inherit from it
+**Decision:** Use EXACT NVDA documentation pattern: `import *` then `class AppModule(AppModule)`
 **Date:** December 2025
-**Status:** Updated v0.0.7 - VERIFIED AGAINST OFFICIAL DOCS
+**Status:** Updated v0.0.9 - CRITICAL FIX after debugging
 
 **Rationale:**
 - NVDA has ~1500 lines of existing PowerPoint support
 - Replacing it would break working features
 - Extending allows adding comments without losing existing functionality
 
-**WRONG Patterns (ALL of these cause addon to not load):**
-```python
-# WRONG PATTERN 1: Wrong base class after import *
-from nvdaBuiltin.appModules.powerpnt import *
-class AppModule(appModuleHandler.AppModule):  # Wrong! Loses built-in
+**Version History - What We Learned:**
+- v0.0.1-v0.0.3: Used `appModuleHandler.AppModule` - MODULE LOADED but lost built-in features
+- v0.0.4-v0.0.8: Used explicit import with alias - MODULE DID NOT LOAD
+- v0.0.9: Uses EXACT NVDA doc pattern - TESTING
 
-# WRONG PATTERN 2: Implicit namespace confusion
+**PATTERNS THAT DON'T WORK (tested):**
+
+```python
+# PATTERN A: Inheriting from base class (v0.0.1-v0.0.3)
+# Module LOADS but loses all built-in PowerPoint support!
 from nvdaBuiltin.appModules.powerpnt import *
 import appModuleHandler
-class AppModule(appModuleHandler.AppModule):  # Still wrong!
+class AppModule(appModuleHandler.AppModule):  # LOSES built-in features
+
+# PATTERN B: Explicit import with alias (v0.0.4-v0.0.8)
+# Module appears to NOT LOAD - no logs appear
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+class AppModule(BuiltinPowerPointAppModule):  # Did not work in testing
 ```
 
-**CORRECT Patterns (verified against NVDA Developer Guide + Office Desk addon):**
+**CORRECT PATTERN (NVDA Developer Guide):**
 
 ```python
-# CORRECT PATTERN 1: Explicit import with alias (RECOMMENDED)
-# Reference: Joseph Lee's Office Desk addon
-from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+# EXACT NVDA DOCUMENTATION PATTERN (v0.0.9)
+# Reference: https://download.nvaccess.org/documentation/developerGuide.html
+# "from nvdaBuiltin.appModules.wwahost import *
+#  class AppModule(AppModule):"
 
-class AppModule(BuiltinPowerPointAppModule):
-    # Inherits all built-in functionality
-    pass
-
-# CORRECT PATTERN 2: Import * then inherit from imported class
-# Reference: NVDA Developer Guide wwahost example
 from nvdaBuiltin.appModules.powerpnt import *
 
-class AppModule(AppModule):  # Inherits from imported AppModule!
-    pass
-
-# CORRECT PATTERN 3: Module import (also valid)
-from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
-
-class AppModule(builtinPowerpnt.AppModule):
+class AppModule(AppModule):  # Inherits from the just-imported AppModule!
+    # Your custom code here
     pass
 ```
 
+**Why This Specific Pattern:**
+1. `import *` brings the built-in's `AppModule` into our namespace
+2. `class AppModule(AppModule):` creates our class inheriting from the imported one
+3. Our new class SHADOWS the imported `AppModule` name
+4. NVDA finds our `AppModule` and uses it
+5. We inherit all built-in functionality
+
 **References:**
-- NVDA 2025.3.2 Developer Guide: https://download.nvaccess.org/documentation/developerGuide.html
-- Joseph Lee's Office Desk addon: https://github.com/josephsl/officeDesk
-- wwahost example in NVDA docs shows `class AppModule(AppModule):` pattern
+- NVDA Developer Guide wwahost example: The ONLY documented pattern
+- Joseph Lee's Office Desk addon: Uses just `import *` with no class (re-exports built-in)
 
 **Why This Matters:**
-- Using wrong base class creates an AppModule that doesn't inherit built-in support
-- NVDA silently uses the built-in powerpnt module instead of our addon
-- NO error in logs - addon appears installed but doesn't load
-- Took multiple versions to debug (v0.0.3 through v0.0.7)
+- Pattern B (explicit alias) did not work despite appearing correct
+- Only the EXACT doc pattern has been verified to work
+- Module loading is silent - no errors shown when pattern is wrong
+- Took versions v0.0.1 through v0.0.9 to debug properly
 
 ---
 

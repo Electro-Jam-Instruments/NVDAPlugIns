@@ -32,7 +32,7 @@ This document defines the release process for NVDA plugins in this repository. A
 
 | Plugin | Current Version | Status |
 |--------|-----------------|--------|
-| powerpoint-comments | 0.0.1 | Development |
+| powerpoint-comments | 0.0.8 | Beta |
 
 ## Version Update Process
 
@@ -145,11 +145,64 @@ If a release has issues:
 3. Bump to next patch version
 4. Create new release
 
+## Troubleshooting
+
+### Build Didn't Run After Pushing Tag
+
+**Symptom:** You pushed a tag but no workflow appeared in Actions.
+
+**Cause:** Tag format is wrong.
+
+**Fix:**
+1. Check your tag: `git tag -l | tail -5`
+2. Tags MUST be: `pluginname-vX.X.X-beta` (e.g., `powerpoint-comments-v0.0.8-beta`)
+3. NOT: `vX.X.X-beta` (missing plugin name prefix)
+
+Delete wrong tag and recreate:
+```bash
+# Delete wrong tag
+git tag -d v0.0.8-beta
+git push origin :refs/tags/v0.0.8-beta
+
+# Create correct tag
+git tag -a powerpoint-comments-v0.0.8-beta -m "v0.0.8-beta: Description"
+git push origin powerpoint-comments-v0.0.8-beta
+```
+
+### Installed Addon Version Doesn't Match
+
+**Symptom:** NVDA shows old version even after "installing" new build.
+
+**Possible Causes:**
+1. Build never ran (check tag format above)
+2. Downloaded cached/old file (clear browser cache)
+3. NVDA needs restart after install
+
+**Verify:**
+```bash
+# Check what version is on GitHub Pages
+curl -sI "https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest-beta.nvda-addon" | grep Last-Modified
+
+# Check installed addon version
+type "%APPDATA%\nvda\addons\powerPointComments\manifest.ini" | findstr version
+```
+
+### Version Mismatch Between Files
+
+Always keep these in sync:
+- `powerpoint-comments/addon/manifest.ini` - version field
+- `powerpoint-comments/buildVars.py` - addon_version field
+
+The build validates tag version against manifest.ini only, but buildVars.py should match for consistency.
+
 ## Version History Log
 
 | Date | Plugin | Version | Type | Notes |
 |------|--------|---------|------|-------|
-| (pending) | powerpoint-comments | 0.0.1 | beta | Phase 1 - Foundation |
+| 2025-12-10 | powerpoint-comments | 0.0.8 | beta | Fixed AppModule inheritance, INFO logging |
+| 2025-12-10 | powerpoint-comments | 0.0.7 | beta | First inheritance fix attempt (tag format wrong) |
+| 2025-12-10 | powerpoint-comments | 0.0.6 | beta | Working build, wrong inheritance pattern |
+| 2025-12-10 | powerpoint-comments | 0.0.1-0.0.5 | beta | Initial development iterations |
 
 ---
 

@@ -4,21 +4,31 @@
 # This module extends NVDA's built-in PowerPoint support to add
 # comment navigation features.
 #
-# Pattern reference: Joseph Lee's Office Desk addon and NVDA Developer Guide
-# https://github.com/josephsl/officeDesk
+# Pattern: NVDA Developer Guide - extending built-in appModules
 # https://download.nvaccess.org/documentation/developerGuide.html
+# Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
-# Import built-in PowerPoint AppModule to extend it
-# Use explicit import to inherit from built-in class
-from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+# Addon version - update this and manifest.ini together
+ADDON_VERSION = "0.0.9"
+
+# Import logging FIRST so we can log any import issues
+import logging
+log = logging.getLogger(__name__)
+log.info(f"PowerPoint Comments addon: Module loading (v{ADDON_VERSION})")
+
+# Import EVERYTHING from built-in PowerPoint module
+# This is the NVDA-documented pattern for extending built-in appModules
+from nvdaBuiltin.appModules.powerpnt import *
+log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
+
+# Additional imports for our functionality
 from comtypes.client import GetActiveObject
 import ui
-import logging
-
-log = logging.getLogger(__name__)
 
 
-class AppModule(BuiltinPowerPointAppModule):
+# Inherit from the just-imported AppModule (NVDA doc pattern)
+# This preserves all built-in PowerPoint support while adding our features
+class AppModule(AppModule):
     """Enhanced PowerPoint with comment navigation.
 
     Extends NVDA's built-in PowerPoint support using the pattern from
@@ -37,7 +47,7 @@ class AppModule(BuiltinPowerPointAppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
-        log.info("PowerPoint Comments addon initialized (v0.0.8)")
+        log.info(f"PowerPoint Comments AppModule instantiated (v{ADDON_VERSION})")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""
