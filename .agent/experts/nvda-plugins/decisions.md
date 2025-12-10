@@ -92,36 +92,62 @@
 
 ### 6. Extend Built-in PowerPoint Support (Don't Replace)
 
-**Decision:** Import built-in module and inherit from its AppModule class
+**Decision:** Import built-in AppModule explicitly and inherit from it
 **Date:** December 2025
-**Status:** Updated - CRITICAL FIX
+**Status:** Updated v0.0.7 - VERIFIED AGAINST OFFICIAL DOCS
 
 **Rationale:**
 - NVDA has ~1500 lines of existing PowerPoint support
 - Replacing it would break working features
 - Extending allows adding comments without losing existing functionality
 
-**WRONG Pattern (causes addon to not load):**
+**WRONG Patterns (ALL of these cause addon to not load):**
 ```python
-# DON'T DO THIS - creates namespace collision
+# WRONG PATTERN 1: Wrong base class after import *
 from nvdaBuiltin.appModules.powerpnt import *
-class AppModule(appModuleHandler.AppModule):  # Wrong base class!
+class AppModule(appModuleHandler.AppModule):  # Wrong! Loses built-in
+
+# WRONG PATTERN 2: Implicit namespace confusion
+from nvdaBuiltin.appModules.powerpnt import *
+import appModuleHandler
+class AppModule(appModuleHandler.AppModule):  # Still wrong!
 ```
 
-**CORRECT Pattern:**
+**CORRECT Patterns (verified against NVDA Developer Guide + Office Desk addon):**
+
 ```python
-# appModules/powerpnt.py
+# CORRECT PATTERN 1: Explicit import with alias (RECOMMENDED)
+# Reference: Joseph Lee's Office Desk addon
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+
+class AppModule(BuiltinPowerPointAppModule):
+    # Inherits all built-in functionality
+    pass
+
+# CORRECT PATTERN 2: Import * then inherit from imported class
+# Reference: NVDA Developer Guide wwahost example
+from nvdaBuiltin.appModules.powerpnt import *
+
+class AppModule(AppModule):  # Inherits from imported AppModule!
+    pass
+
+# CORRECT PATTERN 3: Module import (also valid)
 from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
 
-class AppModule(builtinPowerpnt.AppModule):  # Inherit from built-in
-    # Add comment features on top
+class AppModule(builtinPowerpnt.AppModule):
+    pass
 ```
 
+**References:**
+- NVDA 2025.3.2 Developer Guide: https://download.nvaccess.org/documentation/developerGuide.html
+- Joseph Lee's Office Desk addon: https://github.com/josephsl/officeDesk
+- wwahost example in NVDA docs shows `class AppModule(AppModule):` pattern
+
 **Why This Matters:**
-- The `import *` pattern imports the built-in `AppModule` into namespace
-- Then defining our own `AppModule` with wrong base class causes confusion
-- NVDA silently fails to load the addon - NO error in logs
-- Fixed in v0.0.4 after testing showed addon wasn't initializing
+- Using wrong base class creates an AppModule that doesn't inherit built-in support
+- NVDA silently uses the built-in powerpnt module instead of our addon
+- NO error in logs - addon appears installed but doesn't load
+- Took multiple versions to debug (v0.0.3 through v0.0.7)
 
 ---
 

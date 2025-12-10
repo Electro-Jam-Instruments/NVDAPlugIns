@@ -3,11 +3,14 @@
 #
 # This module extends NVDA's built-in PowerPoint support to add
 # comment navigation features.
+#
+# Pattern reference: Joseph Lee's Office Desk addon and NVDA Developer Guide
+# https://github.com/josephsl/officeDesk
+# https://download.nvaccess.org/documentation/developerGuide.html
 
-# First, inherit all built-in PowerPoint support
-from nvdaBuiltin.appModules.powerpnt import *
-
-import appModuleHandler
+# Import built-in PowerPoint AppModule to extend it
+# Use explicit import to inherit from built-in class
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
 from comtypes.client import GetActiveObject
 import ui
 import logging
@@ -15,8 +18,12 @@ import logging
 log = logging.getLogger(__name__)
 
 
-class AppModule(appModuleHandler.AppModule):
-    """Enhanced PowerPoint with comment navigation."""
+class AppModule(BuiltinPowerPointAppModule):
+    """Enhanced PowerPoint with comment navigation.
+
+    Extends NVDA's built-in PowerPoint support using the pattern from
+    NVDA Developer Guide and Joseph Lee's Office Desk addon.
+    """
 
     # View type constants
     PP_VIEW_NORMAL = 9
@@ -30,7 +37,7 @@ class AppModule(appModuleHandler.AppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
-        log.info("PowerPoint Comments addon initialized (v0.0.6)")
+        log.info("PowerPoint Comments addon initialized (v0.0.7)")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""
