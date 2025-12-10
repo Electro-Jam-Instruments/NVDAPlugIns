@@ -30,13 +30,16 @@ class AppModule(appModuleHandler.AppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
-        log.info("PowerPoint Comments addon initialized (v0.0.1)")
+        log.info("PowerPoint Comments addon initialized (v0.0.2)")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""
         log.debug("event_appModule_gainFocus fired")
-        self._connect_to_powerpoint()
-        self._ensure_normal_view()
+        if self._connect_to_powerpoint():
+            if self._has_active_presentation():
+                self._ensure_normal_view()
+            else:
+                log.debug("No active presentation - skipping view management")
 
     def _connect_to_powerpoint(self):
         """Connect to running PowerPoint instance."""
@@ -44,9 +47,29 @@ class AppModule(appModuleHandler.AppModule):
             self._ppt_app = GetActiveObject("PowerPoint.Application")
             log.debug("Connected to PowerPoint COM")
             return True
+        except OSError as e:
+            # WinError -2147221021: Operation unavailable
+            # This happens when PowerPoint is starting up or COM isn't ready
+            log.debug(f"PowerPoint COM not ready: {e}")
+            self._ppt_app = None
+            return False
         except Exception as e:
             log.error(f"Failed to connect to PowerPoint: {e}")
             self._ppt_app = None
+            return False
+
+    def _has_active_presentation(self):
+        """Check if there's an active presentation open."""
+        try:
+            if self._ppt_app:
+                # Check if there are any presentations open
+                if self._ppt_app.Presentations.Count > 0:
+                    # Check if there's an active window
+                    if self._ppt_app.ActiveWindow:
+                        return True
+            return False
+        except Exception as e:
+            log.debug(f"No active presentation: {e}")
             return False
 
     def _verify_connection(self):
@@ -67,7 +90,7 @@ class AppModule(appModuleHandler.AppModule):
                 log.debug(f"View type detected: {view_type}")
                 return view_type
         except Exception as e:
-            log.error(f"Failed to get view type: {e}")
+            log.debug(f"Failed to get view type: {e}")
         return None
 
     def _ensure_normal_view(self):
@@ -82,5 +105,5 @@ class AppModule(appModuleHandler.AppModule):
             else:
                 log.debug("Already in Normal view")
         except Exception as e:
-            log.error(f"Failed to switch view: {e}")
+            log.debug(f"Failed to switch view: {e}")
         return False
