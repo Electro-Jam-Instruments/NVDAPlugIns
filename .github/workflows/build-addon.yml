@@ -118,3 +118,80 @@ jobs:
             [${{ steps.find_addon.outputs.addon_name }}](${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/${{ steps.find_addon.outputs.addon_name }})
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Deploy to GitHub Pages for public downloads
+      - name: Prepare Pages deployment
+        run: |
+          PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
+          VERSION="${{ steps.tag_info.outputs.version }}"
+          IS_BETA="${{ steps.tag_info.outputs.is_beta }}"
+          ADDON_FILE="${{ steps.find_addon.outputs.addon_name }}"
+
+          mkdir -p deploy/downloads
+
+          # Copy addon file
+          cp "${{ steps.find_addon.outputs.addon_path }}" deploy/downloads/
+
+          # Also copy as "latest" for easy linking
+          if [ "$IS_BETA" == "true" ]; then
+            cp "${{ steps.find_addon.outputs.addon_path }}" "deploy/downloads/$PLUGIN_NAME-latest-beta.nvda-addon"
+          else
+            cp "${{ steps.find_addon.outputs.addon_path }}" "deploy/downloads/$PLUGIN_NAME-latest.nvda-addon"
+          fi
+
+          # Create download page
+          cat > deploy/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>NVDA Plugins - Electro Jam Instruments</title>
+            <style>
+              body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
+              h1 { color: #333; }
+              .download-box { background: #f5f5f5; padding: 1.5rem; border-radius: 8px; margin: 1rem 0; }
+              .download-link { display: inline-block; background: #0066cc; color: white; padding: 0.75rem 1.5rem; text-decoration: none; border-radius: 4px; margin: 0.5rem 0; }
+              .download-link:hover { background: #0052a3; }
+              .beta { background: #ff9800; }
+              .beta:hover { background: #f57c00; }
+              code { background: #eee; padding: 0.2rem 0.4rem; border-radius: 3px; }
+            </style>
+          </head>
+          <body>
+            <h1>NVDA Plugins</h1>
+            <p>Accessibility plugins for NVDA screen reader by Electro Jam Instruments.</p>
+
+            <div class="download-box">
+              <h2>PowerPoint Comments</h2>
+              <p>Navigate and read PowerPoint comments with keyboard shortcuts.</p>
+              <p><strong>Requirements:</strong> NVDA 2025.3.2+, PowerPoint 365</p>
+
+              <h3>Downloads</h3>
+              <p>
+                <a class="download-link beta" href="downloads/powerpoint-comments-latest-beta.nvda-addon">
+                  Download Latest Beta
+                </a>
+              </p>
+
+              <h3>Installation</h3>
+              <ol>
+                <li>Download the <code>.nvda-addon</code> file</li>
+                <li>Double-click to install</li>
+                <li>Restart NVDA when prompted</li>
+              </ol>
+            </div>
+
+            <footer>
+              <p>&copy; 2025 Electro Jam Instruments</p>
+            </footer>
+          </body>
+          </html>
+          HTMLEOF
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          keep_files: true
