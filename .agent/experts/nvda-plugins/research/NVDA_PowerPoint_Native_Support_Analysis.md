@@ -301,8 +301,14 @@ def chooseNVDAObjectOverlayClasses(self, obj, clsList):
 
 ### 5.3 Adding Custom Gestures/Scripts
 
+**NOTE:** When extending built-in PowerPoint support, inherit from the built-in AppModule class.
+See `decisions.md` Decision 6 for the verified pattern.
+
 ```python
-class AppModule(appModuleHandler.AppModule):
+# Use explicit import pattern - see decisions.md #6
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+
+class AppModule(BuiltinPowerPointAppModule):
 
     @script(
         description=_("Read comments on current slide"),

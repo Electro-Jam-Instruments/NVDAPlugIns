@@ -681,17 +681,20 @@ def navigate_to_comment_with_nvda_handling(comment_element, comment_data):
 
 ### NVDA AppModule Integration
 
-For the PowerPoint NVDA plugin, add custom handling in the appModule:
+For the PowerPoint NVDA plugin, add custom handling in the appModule.
+
+**IMPORTANT:** Use the correct inheritance pattern to extend built-in PowerPoint support.
+See `decisions.md` Decision 6 for verified patterns.
 
 ```python
 # File: appModules/powerpnt.py (in NVDA addon)
 
-import appModuleHandler
 import api
 import eventHandler
 import NVDAObjects.UIA
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
 
-class AppModule(appModuleHandler.AppModule):
+class AppModule(BuiltinPowerPointAppModule):
 
     def event_gainFocus(self, obj, nextHandler):
         """Handle focus changes in PowerPoint."""
@@ -1418,8 +1421,11 @@ class CommentNavigator:
             return False
 
 
-class AppModule(appModuleHandler.AppModule):
-    """PowerPoint app module with comment navigation."""
+# IMPORTANT: Use correct inheritance pattern - see decisions.md Decision 6
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+
+class AppModule(BuiltinPowerPointAppModule):
+    """PowerPoint app module with comment navigation (extends built-in)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -391,8 +391,12 @@ class MyUIAObject(UIA):
 
 Used to customize behavior for specific controls without full class replacement:
 
+**NOTE:** This example shows a NEW app module (no built-in support to extend).
+For apps WITH built-in support (like PowerPoint), inherit from the built-in
+AppModule class instead. See `decisions.md` Decision 6.
+
 ```python
-# In appModules/myapp.py
+# In appModules/myapp.py (for app WITHOUT built-in support)
 
 class AppModule(appModuleHandler.AppModule):
 
@@ -494,8 +498,11 @@ def handleEvent(self, eventID, sender, args):
 
 ### 6.1 Accessing UIAHandler from App Module
 
+**NOTE:** Examples in this section show NEW app modules (no built-in support).
+For apps WITH built-in support (like PowerPoint), see `decisions.md` Decision 6.
+
 ```python
-# appModules/myapp.py
+# appModules/myapp.py (for app WITHOUT built-in support)
 
 import appModuleHandler
 import UIAHandler
@@ -977,8 +984,12 @@ def isElementValid(element):
 
 ### 10.1 Complete App Module with UIA
 
+**NOTE:** This example shows a NEW app module (no built-in support to extend).
+For apps WITH built-in support (like PowerPoint), inherit from the built-in
+AppModule class instead. See `decisions.md` Decision 6.
+
 ```python
-# appModules/myapp.py
+# appModules/myapp.py (for app WITHOUT built-in support)
 
 import appModuleHandler
 import UIAHandler
@@ -990,7 +1001,7 @@ from logHandler import log
 from comtypes import COMError
 
 class AppModule(appModuleHandler.AppModule):
-    """App module demonstrating UIA usage."""
+    """App module demonstrating UIA usage (no built-in to extend)."""
 
     # Window classes where UIA should be disabled
     badUIAWindowClasses = ['LegacyControl']
@@ -1314,8 +1325,11 @@ class UIAHelpers:
 
 ### 10.3 PowerPoint Plugin with Hybrid Approach
 
+**NOTE:** This example shows the correct pattern for extending built-in PowerPoint support.
+See `decisions.md` Decision 6 for full details.
+
 ```python
-# appModules/powerpnt_enhanced.py
+# appModules/powerpnt.py (extends built-in PowerPoint support)
 
 """
 Enhanced PowerPoint plugin using hybrid COM/UIA approach.
@@ -1323,7 +1337,6 @@ Uses COM for slide content (where UIA is incomplete)
 and UIA for modern UI elements like task panes.
 """
 
-import appModuleHandler
 import UIAHandler
 from NVDAObjects.UIA import UIA
 from NVDAObjects.IAccessible import IAccessible
@@ -1334,17 +1347,18 @@ from logHandler import log
 from comtypes import COMError
 import winUser
 
-# Import base PowerPoint module
-from appModules import powerpnt
+# Import built-in PowerPoint module to extend it
+# Pattern reference: decisions.md Decision 6
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
 
-class AppModule(powerpnt.AppModule):
+class AppModule(BuiltinPowerPointAppModule):
     """Enhanced PowerPoint app module with selective UIA usage."""
 
     # Task pane classes that CAN use UIA
     taskPaneClasses = ['NetUIHWND']
 
     # Main PowerPoint classes that should NOT use UIA
-    badUIAWindowClasses = powerpnt.AppModule.badUIAWindowClasses + [
+    badUIAWindowClasses = BuiltinPowerPointAppModule.badUIAWindowClasses + [
         'paneClassDC',
         'mdiClass',
         'screenClass',

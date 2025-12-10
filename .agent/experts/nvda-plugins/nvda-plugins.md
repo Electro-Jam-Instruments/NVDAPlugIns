@@ -152,9 +152,13 @@ NVDA's built-in `powerpnt.py` (~1500 lines) provides:
 
 ```python
 # appModules/powerpnt.py
-from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
+# Pattern reference: Joseph Lee's Office Desk addon and NVDA Developer Guide
+# https://github.com/josephsl/officeDesk
+# https://download.nvaccess.org/documentation/developerGuide.html
 
-class AppModule(builtinPowerpnt.AppModule):
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+
+class AppModule(BuiltinPowerPointAppModule):
     """Extended PowerPoint support."""
 
     def __init__(self, *args, **kwargs):
@@ -162,16 +166,21 @@ class AppModule(builtinPowerpnt.AppModule):
         # Your initialization here
 ```
 
-**WARNING - DO NOT USE THIS PATTERN:**
+**WARNING - DO NOT USE THESE PATTERNS:**
 ```python
-# WRONG - causes silent loading failure
+# WRONG PATTERN 1 - Wrong base class after import *
 from nvdaBuiltin.appModules.powerpnt import *
-class AppModule(appModuleHandler.AppModule):  # Wrong!
+class AppModule(appModuleHandler.AppModule):  # Wrong! Loses built-in
+
+# WRONG PATTERN 2 - Same problem
+from nvdaBuiltin.appModules.powerpnt import *
+import appModuleHandler
+class AppModule(appModuleHandler.AppModule):  # Still wrong!
 ```
 
-The `import *` pattern creates namespace collision. The addon loads but doesn't initialize - no errors in log.
+The wrong patterns create an AppModule that doesn't inherit built-in support. NVDA silently uses the built-in module instead - no errors in log.
 
-For full implementation, see `MVP_IMPLEMENTATION_PLAN.md` Phase 1 and `decisions.md` Decision 6.
+For full details on verified patterns, see `decisions.md` Decision 6.
 
 ### Logging for Debugging
 

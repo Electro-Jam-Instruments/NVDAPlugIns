@@ -142,16 +142,25 @@ log.error(f"Operation failed: {e}")    # Errors
 
 ```python
 # appModules/powerpnt.py
-# Import built-in PowerPoint module to extend it
-from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
+# Pattern reference: Joseph Lee's Office Desk addon and NVDA Developer Guide
+# https://github.com/josephsl/officeDesk
+# https://download.nvaccess.org/documentation/developerGuide.html
+
+# Import built-in PowerPoint AppModule to extend it
+# Use explicit import to inherit from built-in class
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
 from comtypes.client import GetActiveObject
 import ui
 import logging
 
 log = logging.getLogger(__name__)
 
-class AppModule(builtinPowerpnt.AppModule):
-    """Enhanced PowerPoint with comment navigation."""
+class AppModule(BuiltinPowerPointAppModule):
+    """Enhanced PowerPoint with comment navigation.
+
+    Extends NVDA's built-in PowerPoint support using the pattern from
+    NVDA Developer Guide and Joseph Lee's Office Desk addon.
+    """
 
     # View type constants
     PP_VIEW_NORMAL = 9
@@ -383,8 +392,8 @@ https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpo
 ### 2.1 Slide Change Detection
 
 ```python
-class AppModule(appModuleHandler.AppModule):
-    # ... (from Phase 1)
+class AppModule(BuiltinPowerPointAppModule):
+    # ... (inherits from Phase 1 - see decisions.md #6 for pattern)
 
     def _get_current_slide_index(self):
         """Get current slide index (1-based)."""
@@ -687,8 +696,8 @@ class CommentNavigator:
 from scriptHandler import script
 import tones
 
-class AppModule(appModuleHandler.AppModule):
-    # ... (previous code)
+class AppModule(BuiltinPowerPointAppModule):
+    # ... (inherits from Phase 1 - see decisions.md #6 for pattern)
 
     @script(
         description="Next comment",

@@ -62,7 +62,7 @@ See individual `decisions.md` files in expert folders for full rationale.
 | Focus Management | UIA | Comments pane is UIA-enabled |
 | @Mention Parsing | Regex | No structured API available |
 | View Detection | `ActiveWindow.ViewType` | Returns constants (Normal=9) |
-| Extend vs Replace | `from nvdaBuiltin...import *` | Preserve existing PowerPoint support |
+| Extend vs Replace | Explicit import + inherit from built-in AppModule | See decisions.md #6 for verified pattern |
 | Testing Strategy | Manual first, automation post-MVP | Fastest iteration, real SR testing |
 | Debugging | Python logging to NVDA log | Verify events without visual feedback |
 
