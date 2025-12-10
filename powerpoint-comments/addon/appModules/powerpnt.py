@@ -4,10 +4,8 @@
 # This module extends NVDA's built-in PowerPoint support to add
 # comment navigation features.
 
-# First, inherit all built-in PowerPoint support
-from nvdaBuiltin.appModules.powerpnt import *
-
-import appModuleHandler
+# Import the built-in PowerPoint AppModule to extend it
+from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
 from comtypes.client import GetActiveObject
 import ui
 import logging
@@ -15,7 +13,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-class AppModule(appModuleHandler.AppModule):
+class AppModule(builtinPowerpnt.AppModule):
     """Enhanced PowerPoint with comment navigation."""
 
     # View type constants
@@ -30,7 +28,7 @@ class AppModule(appModuleHandler.AppModule):
         super().__init__(*args, **kwargs)
         self._ppt_app = None
         self._last_slide_index = -1
-        log.info("PowerPoint Comments addon initialized (v0.0.3)")
+        log.info("PowerPoint Comments addon initialized (v0.0.4)")
 
     def event_appModule_gainFocus(self):
         """Called when PowerPoint gains focus."""

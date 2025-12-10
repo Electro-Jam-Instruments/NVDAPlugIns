@@ -138,19 +138,19 @@ log.error(f"Operation failed: {e}")    # Errors
 
 ### 1.1 App Module Skeleton
 
+**CRITICAL:** Use correct inheritance pattern. See `decisions.md` Decision 6.
+
 ```python
 # appModules/powerpnt.py
-# First, inherit all built-in PowerPoint support
-from nvdaBuiltin.appModules.powerpnt import *
-
-import appModuleHandler
+# Import built-in PowerPoint module to extend it
+from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
 from comtypes.client import GetActiveObject
 import ui
 import logging
 
 log = logging.getLogger(__name__)
 
-class AppModule(appModuleHandler.AppModule):
+class AppModule(builtinPowerpnt.AppModule):
     """Enhanced PowerPoint with comment navigation."""
 
     # View type constants

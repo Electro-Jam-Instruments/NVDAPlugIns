@@ -148,16 +148,30 @@ NVDA's built-in `powerpnt.py` (~1500 lines) provides:
 
 ### Extending Built-in App Modules
 
-**IMPORTANT:** To extend NVDA's built-in PowerPoint support (not replace it):
+**CRITICAL:** To extend NVDA's built-in PowerPoint support, use this pattern:
 
 ```python
 # appModules/powerpnt.py
-from nvdaBuiltin.appModules.powerpnt import *  # Inherit all existing support
+from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
+
+class AppModule(builtinPowerpnt.AppModule):
+    """Extended PowerPoint support."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Your initialization here
 ```
 
-This pattern inherits all existing PowerPoint support so we only add comment features on top.
+**WARNING - DO NOT USE THIS PATTERN:**
+```python
+# WRONG - causes silent loading failure
+from nvdaBuiltin.appModules.powerpnt import *
+class AppModule(appModuleHandler.AppModule):  # Wrong!
+```
 
-For full implementation, see `MVP_IMPLEMENTATION_PLAN.md` Phase 1.
+The `import *` pattern creates namespace collision. The addon loads but doesn't initialize - no errors in log.
+
+For full implementation, see `MVP_IMPLEMENTATION_PLAN.md` Phase 1 and `decisions.md` Decision 6.
 
 ### Logging for Debugging
 

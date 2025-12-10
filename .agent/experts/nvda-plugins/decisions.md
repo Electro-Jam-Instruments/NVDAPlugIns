@@ -92,24 +92,36 @@
 
 ### 6. Extend Built-in PowerPoint Support (Don't Replace)
 
-**Decision:** Use `from nvdaBuiltin.appModules.powerpnt import *` to extend existing support
+**Decision:** Import built-in module and inherit from its AppModule class
 **Date:** December 2025
-**Status:** Final
+**Status:** Updated - CRITICAL FIX
 
 **Rationale:**
 - NVDA has ~1500 lines of existing PowerPoint support
 - Replacing it would break working features
 - Extending allows adding comments without losing existing functionality
-- This is the documented NVDA pattern for app module extensions
 
-**Implementation:**
+**WRONG Pattern (causes addon to not load):**
+```python
+# DON'T DO THIS - creates namespace collision
+from nvdaBuiltin.appModules.powerpnt import *
+class AppModule(appModuleHandler.AppModule):  # Wrong base class!
+```
+
+**CORRECT Pattern:**
 ```python
 # appModules/powerpnt.py
-from nvdaBuiltin.appModules.powerpnt import *  # Inherit all existing support
+from nvdaBuiltin.appModules import powerpnt as builtinPowerpnt
 
-class AppModule(appModuleHandler.AppModule):
+class AppModule(builtinPowerpnt.AppModule):  # Inherit from built-in
     # Add comment features on top
 ```
+
+**Why This Matters:**
+- The `import *` pattern imports the built-in `AppModule` into namespace
+- Then defining our own `AppModule` with wrong base class causes confusion
+- NVDA silently fails to load the addon - NO error in logs
+- Fixed in v0.0.4 after testing showed addon wasn't initializing
 
 ---
 
