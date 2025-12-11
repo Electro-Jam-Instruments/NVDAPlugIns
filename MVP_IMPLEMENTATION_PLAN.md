@@ -138,29 +138,31 @@ log.error(f"Operation failed: {e}")    # Errors
 
 ### 1.1 App Module Skeleton
 
-**CRITICAL:** Use correct inheritance pattern. See `decisions.md` Decision 6.
+**CRITICAL:** Use EXACT NVDA documentation pattern. See `decisions.md` Decision 6.
 
 ```python
 # appModules/powerpnt.py
-# Pattern reference: Joseph Lee's Office Desk addon and NVDA Developer Guide
-# https://github.com/josephsl/officeDesk
+# Pattern: NVDA Developer Guide - extending built-in appModules
 # https://download.nvaccess.org/documentation/developerGuide.html
 
-# Import built-in PowerPoint AppModule to extend it
-# Use explicit import to inherit from built-in class
-from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
-from comtypes.client import GetActiveObject
-import ui
+ADDON_VERSION = "0.0.13"
+
 import logging
-
 log = logging.getLogger(__name__)
+log.info(f"PowerPoint Comments addon: Module loading (v{ADDON_VERSION})")
 
-class AppModule(BuiltinPowerPointAppModule):
-    """Enhanced PowerPoint with comment navigation.
+# Import EVERYTHING from built-in - this is the NVDA doc pattern
+from nvdaBuiltin.appModules.powerpnt import *
+log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 
-    Extends NVDA's built-in PowerPoint support using the pattern from
-    NVDA Developer Guide and Joseph Lee's Office Desk addon.
-    """
+# CRITICAL: Use comHelper NOT GetActiveObject (UIAccess privilege issue)
+import comHelper
+import ui
+import core  # For callLater - deferred execution
+
+# Inherit from just-imported AppModule (NVDA doc pattern)
+class AppModule(AppModule):
+    """Enhanced PowerPoint with comment navigation."""
 
     # View type constants
     PP_VIEW_NORMAL = 9
@@ -171,37 +173,69 @@ class AppModule(BuiltinPowerPointAppModule):
     PP_VIEW_READING = 50
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)  # super() works for __init__
         self._ppt_app = None
         self._last_slide_index = -1
-        log.debug("PowerPoint Comments addon initialized")
+        log.info(f"PowerPoint Comments AppModule instantiated (v{ADDON_VERSION})")
 
     def event_appModule_gainFocus(self):
-        """Called when PowerPoint gains focus."""
-        log.debug("event_appModule_gainFocus fired")
-        self._connect_to_powerpoint()
-        self._ensure_normal_view()
+        """Called when PowerPoint gains focus.
+
+        CRITICAL RULES (see decisions.md #9, #10):
+        1. Do NOT call super() - method doesn't exist in parent, will crash
+        2. Do NOT do heavy work - blocks NVDA speech
+        3. Defer COM work with core.callLater()
+        """
+        log.info("PowerPoint Comments: App gained focus - deferring initialization")
+        core.callLater(100, self._deferred_initialization)
+
+    def _deferred_initialization(self):
+        """Initialize after focus event completes (allows NVDA to speak)."""
+        log.info("PowerPoint Comments: Deferred initialization starting")
+        try:
+            if self._connect_to_powerpoint():
+                if self._has_active_presentation():
+                    self._ensure_normal_view()
+        except Exception as e:
+            log.error(f"Deferred initialization failed: {e}")
 
     def _connect_to_powerpoint(self):
-        """Connect to running PowerPoint instance."""
+        """Connect to running PowerPoint instance.
+
+        CRITICAL: Use comHelper.getActiveObject() NOT GetActiveObject()
+        NVDA runs with UIAccess privileges which blocks direct COM access.
+        See decisions.md #11.
+        """
         try:
-            self._ppt_app = GetActiveObject("PowerPoint.Application")
-            log.debug("Connected to PowerPoint COM")
+            self._ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+            log.info("PowerPoint Comments: Connected to COM via comHelper")
             return True
-        except Exception as e:
-            log.error(f"Failed to connect to PowerPoint: {e}")
+        except OSError as e:
+            log.info(f"PowerPoint Comments: COM not ready - {e}")
             self._ppt_app = None
             return False
+        except Exception as e:
+            log.error(f"PowerPoint Comments: COM failed - {e}")
+            self._ppt_app = None
+            return False
+
+    def _has_active_presentation(self):
+        """Check if there's an active presentation open."""
+        try:
+            if self._ppt_app and self._ppt_app.Presentations.Count > 0:
+                if self._ppt_app.ActiveWindow:
+                    return True
+        except Exception:
+            pass
+        return False
 
     def _get_current_view(self):
         """Get current PowerPoint view type."""
         try:
             if self._ppt_app and self._ppt_app.ActiveWindow:
-                view_type = self._ppt_app.ActiveWindow.ViewType
-                log.debug(f"View type detected: {view_type}")
-                return view_type
-        except Exception as e:
-            log.error(f"Failed to get view type: {e}")
+                return self._ppt_app.ActiveWindow.ViewType
+        except Exception:
+            pass
         return None
 
     def _ensure_normal_view(self):
@@ -213,10 +247,8 @@ class AppModule(BuiltinPowerPointAppModule):
                 self._ppt_app.ActiveWindow.ViewType = self.PP_VIEW_NORMAL
                 ui.message("Switched to Normal view")
                 return True
-            else:
-                log.debug("Already in Normal view")
         except Exception as e:
-            log.error(f"Failed to switch view: {e}")
+            log.debug(f"Failed to switch view: {e}")
         return False
 ```
 
@@ -392,8 +424,8 @@ https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpo
 ### 2.1 Slide Change Detection
 
 ```python
-class AppModule(BuiltinPowerPointAppModule):
-    # ... (inherits from Phase 1 - see decisions.md #6 for pattern)
+class AppModule(AppModule):
+    # ... (inherits from Phase 1 - see decisions.md #6 for NVDA doc pattern)
 
     def _get_current_slide_index(self):
         """Get current slide index (1-based)."""
@@ -696,8 +728,8 @@ class CommentNavigator:
 from scriptHandler import script
 import tones
 
-class AppModule(BuiltinPowerPointAppModule):
-    # ... (inherits from Phase 1 - see decisions.md #6 for pattern)
+class AppModule(AppModule):
+    # ... (inherits from Phase 1 - see decisions.md #6 for NVDA doc pattern)
 
     @script(
         description="Next comment",
@@ -1118,6 +1150,13 @@ See [REPO_STRUCTURE.md](REPO_STRUCTURE.md) for complete release workflow.
 
 ---
 
-**Document Version:** 3.0
+**Document Version:** 4.0
 **Last Updated:** December 2025
-**Status:** Planning Complete - Ready for Phase 1 Implementation
+**Status:** Phase 1 COMPLETE (v0.0.13) - Ready for Phase 2 Implementation
+
+### Version History Notes
+- v0.0.9: Fixed AppModule inheritance pattern
+- v0.0.10: Added super() call to event handler - FAILED (method doesn't exist)
+- v0.0.11: Removed super(), added core.callLater() for deferred execution
+- v0.0.12: Added INFO logging to debug COM
+- v0.0.13: Fixed COM access using comHelper (UIAccess privilege issue)

@@ -94,7 +94,7 @@
 
 **Decision:** Use EXACT NVDA documentation pattern: `import *` then `class AppModule(AppModule)`
 **Date:** December 2025
-**Status:** Updated v0.0.9 - CRITICAL FIX after debugging
+**Status:** VERIFIED WORKING v0.0.9+
 
 **Rationale:**
 - NVDA has ~1500 lines of existing PowerPoint support
@@ -104,7 +104,7 @@
 **Version History - What We Learned:**
 - v0.0.1-v0.0.3: Used `appModuleHandler.AppModule` - MODULE LOADED but lost built-in features
 - v0.0.4-v0.0.8: Used explicit import with alias - MODULE DID NOT LOAD
-- v0.0.9: Uses EXACT NVDA doc pattern - TESTING
+- v0.0.9+: Uses EXACT NVDA doc pattern - WORKING
 
 **PATTERNS THAT DON'T WORK (tested):**
 
@@ -124,16 +124,14 @@ class AppModule(BuiltinPowerPointAppModule):  # Did not work in testing
 **CORRECT PATTERN (NVDA Developer Guide):**
 
 ```python
-# EXACT NVDA DOCUMENTATION PATTERN (v0.0.9)
+# EXACT NVDA DOCUMENTATION PATTERN (v0.0.9+)
 # Reference: https://download.nvaccess.org/documentation/developerGuide.html
-# "from nvdaBuiltin.appModules.wwahost import *
-#  class AppModule(AppModule):"
 
 from nvdaBuiltin.appModules.powerpnt import *
 
 class AppModule(AppModule):  # Inherits from the just-imported AppModule!
-    # Your custom code here
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)  # super() works for __init__
 ```
 
 **Why This Specific Pattern:**
@@ -220,3 +218,105 @@ log.error(f"Failed: {e}")
 **Research:** `research/PowerPoint-Comment-Resolution-LockedFile-Access-Research.md`
 
 **Future Option:** Revisit if Microsoft exposes resolution status in COM API
+
+---
+
+### 9. Event Handler super() Rules
+
+**Decision:** Only call super() on methods that exist in parent class
+**Date:** December 2025
+**Status:** VERIFIED v0.0.10-v0.0.11
+
+**The Problem:**
+- v0.0.10 added `super().event_appModule_gainFocus()` assuming it would preserve parent behavior
+- Crashed with `AttributeError: 'super' object has no attribute 'event_appModule_gainFocus'`
+- The parent class does NOT define this method - it's an optional hook
+
+**The Rule:**
+
+| Method | Call super()? | Reason |
+|--------|---------------|--------|
+| `__init__` | YES | Parent has this |
+| `terminate` | YES | Parent has this |
+| `event_appModule_gainFocus` | NO | Optional hook, parent doesn't have it |
+| `event_appModule_loseFocus` | NO | Optional hook, parent doesn't have it |
+
+**CORRECT:**
+```python
+def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)  # YES - parent has __init__
+
+def event_appModule_gainFocus(self):
+    # NO super() call - method doesn't exist in parent
+    core.callLater(100, self._deferred_work)
+```
+
+**WRONG:**
+```python
+def event_appModule_gainFocus(self):
+    super().event_appModule_gainFocus()  # CRASH - AttributeError
+```
+
+---
+
+### 10. Defer Heavy Work in Event Handlers
+
+**Decision:** Use `core.callLater()` to defer COM work from event handlers
+**Date:** December 2025
+**Status:** VERIFIED WORKING v0.0.11+
+
+**The Problem:**
+- v0.0.9 blocked NVDA speech by doing COM work directly in `event_appModule_gainFocus`
+- Event handlers that block prevent NVDA from speaking focus changes
+
+**The Solution:**
+```python
+def event_appModule_gainFocus(self):
+    # Return immediately - don't block NVDA speech
+    core.callLater(100, self._deferred_initialization)
+
+def _deferred_initialization(self):
+    # COM work happens here, 100ms after focus event completes
+    self._ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+```
+
+**Why 100ms?**
+- Not from official NVDA guidance - it's a pragmatic value
+- Allows NVDA to complete focus handling and speak first
+- Could be 50ms or 200ms - the key is ANY deferral
+
+**Note on core.callLater():**
+- NVDA maintainers recommend dedicated threads over `core.callLater()` for continuous work
+- For one-time initialization like ours, `core.callLater()` is acceptable
+- Future: Consider dedicated thread for continuous comment monitoring
+
+---
+
+### 11. Use comHelper for COM Access (UIAccess Privilege)
+
+**Decision:** Use `comHelper.getActiveObject()` NOT direct `GetActiveObject()`
+**Date:** December 2025
+**Status:** VERIFIED WORKING v0.0.13
+
+**The Problem:**
+- v0.0.11-v0.0.12 failed with `WinError -2147221021 Operation unavailable`
+- NVDA runs with UIAccess privileges
+- Windows prevents high-privilege processes from directly accessing COM objects in lower-privilege processes
+
+**The Solution:**
+```python
+# CORRECT
+import comHelper
+ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+
+# WRONG - Fails with UIAccess error
+from comtypes.client import GetActiveObject
+ppt_app = GetActiveObject("PowerPoint.Application")
+```
+
+**Why comHelper works:**
+- Uses in-process injection when available (NVDAHelper's `nvdaInProcUtils_getActiveObject`)
+- Falls back to subprocess with appropriate privileges
+- Same approach NVDA's built-in PowerPoint module uses
+
+**Reference:** NVDA GitHub Issue #2483 - GetActiveObject fails when running with uiAccess

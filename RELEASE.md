@@ -32,7 +32,7 @@ This document defines the release process for NVDA plugins in this repository. A
 
 | Plugin | Current Version | Status |
 |--------|-----------------|--------|
-| powerpoint-comments | 0.0.8 | Beta |
+| powerpoint-comments | 0.0.13 | Beta - Phase 1 Complete |
 
 ## Version Update Process
 
@@ -199,10 +199,22 @@ The build validates tag version against manifest.ini only, but buildVars.py shou
 
 | Date | Plugin | Version | Type | Notes |
 |------|--------|---------|------|-------|
-| 2025-12-10 | powerpoint-comments | 0.0.8 | beta | Fixed AppModule inheritance, INFO logging |
-| 2025-12-10 | powerpoint-comments | 0.0.7 | beta | First inheritance fix attempt (tag format wrong) |
-| 2025-12-10 | powerpoint-comments | 0.0.6 | beta | Working build, wrong inheritance pattern |
+| 2025-12-10 | powerpoint-comments | 0.0.13 | beta | WORKING - Fixed COM access with comHelper (UIAccess privilege) |
+| 2025-12-10 | powerpoint-comments | 0.0.12 | beta | Debug - Added INFO logging to track COM initialization |
+| 2025-12-10 | powerpoint-comments | 0.0.11 | beta | WORKING - Deferred COM work with core.callLater (fixes speech) |
+| 2025-12-10 | powerpoint-comments | 0.0.10 | beta | FAILED - super().event_appModule_gainFocus() crashed (method doesn't exist) |
+| 2025-12-10 | powerpoint-comments | 0.0.9 | beta | PARTIAL - Module loads but speech blocked by COM work in event handler |
+| 2025-12-10 | powerpoint-comments | 0.0.8 | beta | FAILED - Explicit alias import pattern did not work |
+| 2025-12-10 | powerpoint-comments | 0.0.7 | beta | FAILED - Tag format wrong, build never ran |
+| 2025-12-10 | powerpoint-comments | 0.0.6 | beta | Working build, wrong inheritance (base class) |
 | 2025-12-10 | powerpoint-comments | 0.0.1-0.0.5 | beta | Initial development iterations |
+
+### Key Learnings (v0.0.9-v0.0.13)
+
+1. **AppModule Pattern:** Only `import *` then `class AppModule(AppModule):` works
+2. **Event Handlers:** `event_appModule_gainFocus` is optional hook - NO super() call
+3. **Blocking Events:** Heavy work in event handlers blocks NVDA speech - defer with `core.callLater()`
+4. **COM Access:** Must use `comHelper.getActiveObject()` not direct `GetActiveObject()` due to UIAccess privileges
 
 ---
 

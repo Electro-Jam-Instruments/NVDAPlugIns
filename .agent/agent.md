@@ -51,6 +51,48 @@ Each expert folder contains:
 5. **Polish + Packaging** - Error handling, final release
 6. **Comment Navigation (optional)** - If arrow keys prove insufficient
 
+## CRITICAL: AppModule Inheritance Pattern
+
+**USE ONLY THE EXACT NVDA DOCUMENTATION PATTERN:**
+
+```python
+from nvdaBuiltin.appModules.powerpnt import *
+
+class AppModule(AppModule):  # Inherits from just-imported AppModule
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)  # super() works for __init__
+```
+
+**DO NOT USE THESE - THEY DO NOT WORK:**
+- `from ... import AppModule as Alias` then `class AppModule(Alias):` - Module does NOT load
+- `class AppModule(appModuleHandler.AppModule):` - Loads but loses built-in features
+
+This was verified through v0.0.1-v0.0.9 testing. See `decisions.md` Decision #6 for full history.
+
+## CRITICAL: Event Handler Rules
+
+**`event_appModule_gainFocus` is an OPTIONAL HOOK - parent does NOT define it:**
+
+```python
+def event_appModule_gainFocus(self):
+    # Do NOT call super() - method doesn't exist, will crash
+    # Do NOT do heavy work - blocks NVDA speech
+    core.callLater(100, self._deferred_initialization)
+```
+
+See `decisions.md` Decisions #9 and #10.
+
+## CRITICAL: COM Access Pattern
+
+**Use `comHelper.getActiveObject()` NOT direct `GetActiveObject()`:**
+
+```python
+import comHelper
+ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+```
+
+Direct `GetActiveObject()` fails with UIAccess privilege error. See `decisions.md` Decision #11.
+
 ## Technical Decisions (Summary)
 
 See individual `decisions.md` files in expert folders for full rationale.
@@ -62,7 +104,7 @@ See individual `decisions.md` files in expert folders for full rationale.
 | Focus Management | UIA | Comments pane is UIA-enabled |
 | @Mention Parsing | Regex | No structured API available |
 | View Detection | `ActiveWindow.ViewType` | Returns constants (Normal=9) |
-| Extend vs Replace | Explicit import + inherit from built-in AppModule | See decisions.md #6 for verified pattern |
+| **Extend Built-in** | **`import *` then `class AppModule(AppModule):`** | **ONLY pattern that works - see decisions.md #6** |
 | Testing Strategy | Manual first, automation post-MVP | Fastest iteration, real SR testing |
 | Debugging | Python logging to NVDA log | Verify events without visual feedback |
 
@@ -89,4 +131,10 @@ NVDA-Plugins/
 ## Version
 
 - **Last Updated:** December 2025
-- **Status:** Planning complete, ready for Phase 1 implementation
+- **Current Version:** v0.0.13
+- **Status:** Phase 1 Foundation COMPLETE
+  - AppModule loads using NVDA doc pattern
+  - COM connection working via comHelper
+  - Event handlers defer work with core.callLater
+  - Presentation detection working
+  - Ready for Phase 2 (Slide Change Detection)

@@ -148,39 +148,69 @@ NVDA's built-in `powerpnt.py` (~1500 lines) provides:
 
 ### Extending Built-in App Modules
 
-**CRITICAL:** To extend NVDA's built-in PowerPoint support, use this pattern:
+**CRITICAL:** To extend NVDA's built-in PowerPoint support, use the EXACT NVDA documentation pattern:
 
 ```python
 # appModules/powerpnt.py
-# Pattern reference: Joseph Lee's Office Desk addon and NVDA Developer Guide
-# https://github.com/josephsl/officeDesk
+# Pattern: NVDA Developer Guide - extending built-in appModules
 # https://download.nvaccess.org/documentation/developerGuide.html
 
-from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+# Import EVERYTHING from built-in - this is the NVDA doc pattern
+from nvdaBuiltin.appModules.powerpnt import *
 
-class AppModule(BuiltinPowerPointAppModule):
+# Inherit from just-imported AppModule (VERIFIED WORKING v0.0.9+)
+class AppModule(AppModule):
     """Extended PowerPoint support."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)  # super() works for __init__
         # Your initialization here
 ```
 
-**WARNING - DO NOT USE THESE PATTERNS:**
+**WARNING - PATTERNS THAT DO NOT WORK:**
 ```python
-# WRONG PATTERN 1 - Wrong base class after import *
-from nvdaBuiltin.appModules.powerpnt import *
-class AppModule(appModuleHandler.AppModule):  # Wrong! Loses built-in
+# WRONG - Explicit alias import (v0.0.4-v0.0.8) - Module does NOT load
+from nvdaBuiltin.appModules.powerpnt import AppModule as BuiltinPowerPointAppModule
+class AppModule(BuiltinPowerPointAppModule):  # Does not work!
 
-# WRONG PATTERN 2 - Same problem
+# WRONG - Base class (v0.0.1-v0.0.3) - Loads but loses built-in features
 from nvdaBuiltin.appModules.powerpnt import *
-import appModuleHandler
-class AppModule(appModuleHandler.AppModule):  # Still wrong!
+class AppModule(appModuleHandler.AppModule):  # Loses built-in support
 ```
 
-The wrong patterns create an AppModule that doesn't inherit built-in support. NVDA silently uses the built-in module instead - no errors in log.
+Only the EXACT NVDA documentation pattern works. The explicit alias pattern appears logically equivalent but does not work in practice.
 
 For full details on verified patterns, see `decisions.md` Decision 6.
+
+### Event Handler Rules - CRITICAL
+
+**`event_appModule_gainFocus` is an OPTIONAL HOOK - parent class does NOT define it.**
+
+```python
+def event_appModule_gainFocus(self):
+    """Called when PowerPoint gains focus.
+
+    CRITICAL RULES:
+    1. Do NOT call super() - method doesn't exist in parent, will crash
+    2. Do NOT do heavy work - blocks NVDA speech
+    3. Defer COM/heavy work with core.callLater()
+    """
+    log.info("App gained focus - deferring initialization")
+    core.callLater(100, self._deferred_initialization)
+
+# WRONG - Will crash with AttributeError
+def event_appModule_gainFocus(self):
+    super().event_appModule_gainFocus()  # FAILS - method doesn't exist
+```
+
+**When to use super():**
+- `__init__` - YES, parent has this
+- `terminate` - YES, parent has this
+- `event_appModule_gainFocus` - NO, optional hook
+- `event_appModule_loseFocus` - NO, optional hook
+
+**Why defer heavy work?**
+Event handlers that block prevent NVDA from speaking. The 100ms delay with `core.callLater()` allows NVDA to complete focus handling and speak before our code runs.
 
 ### Logging for Debugging
 
@@ -214,13 +244,32 @@ def chooseNVDAObjectOverlayClasses(self, obj, clsList):
 - pywin32 DLLs conflict with NVDA process
 - comtypes already in NVDA runtime
 
-### Basic Pattern
+### CRITICAL: Use comHelper, NOT direct GetActiveObject
+
+**NVDA runs with UIAccess privileges** which prevents direct COM access to lower-privilege processes like PowerPoint. Direct `GetActiveObject()` fails with `WinError -2147221021 Operation unavailable`.
 
 ```python
-from comtypes.client import GetActiveObject, CreateObject
+# CORRECT - Use NVDA's comHelper (VERIFIED WORKING v0.0.13)
+import comHelper
+ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
 
-# Connect to running app
-app = GetActiveObject("PowerPoint.Application")
+# WRONG - Fails with UIAccess privilege error
+from comtypes.client import GetActiveObject
+ppt_app = GetActiveObject("PowerPoint.Application")  # FAILS!
+```
+
+**Why comHelper works:**
+- Uses in-process injection when available (bypasses privilege restrictions)
+- Falls back to subprocess with appropriate privileges
+- Same approach NVDA's built-in PowerPoint module uses
+
+### Basic COM Pattern
+
+```python
+import comHelper
+
+# Connect to running app (using comHelper!)
+app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
 
 # Access COM properties
 slide = app.ActiveWindow.View.Slide
