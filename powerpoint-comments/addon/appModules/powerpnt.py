@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.19"
+ADDON_VERSION = "0.0.20"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -21,15 +21,21 @@ log.info(f"PowerPoint Comments addon: Module loading (v{ADDON_VERSION})")
 from nvdaBuiltin.appModules.powerpnt import *
 log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 
-# Check what event interfaces are available from the built-in module
-# NVDA uses wireEApplication for COM events
+# Try to import wireEApplication directly - it's not exported via __all__
+# but we can access it by explicit import
+import nvdaBuiltin.appModules.powerpnt as _nvda_powerpnt
+_wireEApplication = None
 try:
-    # wireEApplication should be available from the import *
-    log.info(f"wireEApplication available: {'wireEApplication' in dir()}")
-    if 'wireEApplication' in dir():
-        log.info(f"wireEApplication type: {type(wireEApplication)}")
+    if hasattr(_nvda_powerpnt, 'wireEApplication'):
+        _wireEApplication = _nvda_powerpnt.wireEApplication
+        log.info(f"wireEApplication found via direct module access: {_wireEApplication}")
+    else:
+        log.warning("wireEApplication not found in nvdaBuiltin.appModules.powerpnt")
+        # List what IS available for debugging
+        attrs = [a for a in dir(_nvda_powerpnt) if not a.startswith('_')]
+        log.info(f"Available in powerpnt module (first 30): {attrs[:30]}")
 except Exception as e:
-    log.warning(f"Could not check wireEApplication: {e}")
+    log.error(f"Failed to get wireEApplication: {e}")
 
 # Additional imports for our functionality
 import comHelper  # NVDA's COM helper - handles UIAccess privilege issues
@@ -54,25 +60,20 @@ def _get_ppt_events_interface(ppt_app):
 
     Returns the interface class or None if not available.
 
-    v0.0.19: Use wireEApplication from NVDA's built-in powerpnt module.
-    This is already loaded by NVDA - no need to load type library ourselves.
+    v0.0.20: Access wireEApplication via direct module import.
     """
     global _ppt_events_interface
 
     if _ppt_events_interface is not None:
         return _ppt_events_interface
 
-    # Try to use wireEApplication from NVDA's built-in module
-    # This was imported via "from nvdaBuiltin.appModules.powerpnt import *"
-    try:
-        if 'wireEApplication' in globals():
-            _ppt_events_interface = wireEApplication
-            log.info(f"Using wireEApplication from NVDA built-in: {wireEApplication}")
-            return _ppt_events_interface
-        else:
-            log.warning("wireEApplication not found in globals after import *")
-    except Exception as e:
-        log.error(f"Failed to get wireEApplication: {e}")
+    # Use wireEApplication from NVDA's built-in module (fetched at module load)
+    if _wireEApplication is not None:
+        _ppt_events_interface = _wireEApplication
+        log.info(f"Using wireEApplication: {_wireEApplication}")
+        return _ppt_events_interface
+    else:
+        log.warning("wireEApplication not available - slide change detection disabled")
 
     return None
 
@@ -163,6 +164,7 @@ class PowerPointWorker:
     v0.0.17: Fixed import error in type library loading.
     v0.0.18: Multiple approaches to load type library (app object, GUID, registry).
     v0.0.19: Use wireEApplication from NVDA's built-in module instead of loading type library.
+    v0.0.20: Access wireEApplication via direct module import (not relying on import *).
     """
 
     # View type constants
