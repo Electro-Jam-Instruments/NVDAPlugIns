@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.50"
+ADDON_VERSION = "0.0.51"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -656,15 +656,16 @@ class PowerPointWorker:
 
         v0.0.49: Called via Ctrl+Alt+N keyboard shortcut.
         v0.0.50: Strips marker tags before announcing.
+        v0.0.51: Don't prefix with "Notes:" since user pressed the notes key.
         Reads full notes text, or announces "No notes" if empty.
         """
         notes = self._get_slide_notes()
         if notes:
             cleaned = self._clean_notes_text(notes)
-            self._announce(f"Notes: {cleaned}")
+            self._announce(cleaned)
             log.info(f"Worker: Announced notes ({len(cleaned)} chars)")
         else:
-            self._announce("No notes on this slide")
+            self._announce("No notes")
             log.info("Worker: No notes on slide")
 
     def _get_comments_on_current_slide(self):
