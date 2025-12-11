@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.37"
+ADDON_VERSION = "0.0.38"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -193,6 +193,7 @@ class PowerPointWorker:
     v0.0.35: Add debug logging to diagnose why reformatting is not triggering.
     v0.0.36: Use event_NVDAObject_init for comment reformatting (NVDA recommended pattern).
     v0.0.37: Cancel-and-reannounce approach - speech.cancelSpeech() + ui.message() in event_gainFocus.
+    v0.0.38: Add diagnostic logging to understand why event_gainFocus not firing for comments.
     """
 
     # View type constants
@@ -742,46 +743,48 @@ class AppModule(AppModule):
         """Called when any object in PowerPoint gains focus.
 
         v0.0.37: Cancel-and-reannounce approach for comment cards.
-        Since event_NVDAObject_init doesn't work for UIA objects, we detect
-        comment cards here, cancel queued speech, and announce our formatted version.
+        v0.0.38: Re-added try/except - was causing silent crashes.
         """
-        # Check if this is a comment card
-        uia_id = getattr(obj, 'UIAAutomationId', '') or ''
-        name = getattr(obj, 'name', '') or ''
+        try:
+            # v0.0.38: Log EVERY focus event to diagnose
+            uia_id = getattr(obj, 'UIAAutomationId', '') or ''
+            name = getattr(obj, 'name', '') or ''
+            obj_class = obj.__class__.__name__
+            log.info(f"FOCUS: class={obj_class}, uia_id='{uia_id[:40]}', name='{name[:60]}'")
 
-        is_comment_card = (
-            uia_id.startswith('cardRoot_') or
-            'Comment thread started by' in name
-        )
+            # Check if this is a comment card
+            is_comment_card = (
+                uia_id.startswith('cardRoot_') or
+                'Comment thread started by' in name
+            )
 
-        if is_comment_card:
-            description = getattr(obj, 'description', '') or ''
+            if is_comment_card:
+                description = getattr(obj, 'description', '') or ''
 
-            # Extract author and resolved state from name
-            # Name format: "Comment thread started by Author" or
-            #              "Resolved comment thread started by Author"
-            is_resolved = name.startswith("Resolved ")
-            author = ""
+                # Extract author and resolved state from name
+                is_resolved = name.startswith("Resolved ")
+                author = ""
 
-            if " started by " in name:
-                # Author may have suffix like ", with 1 reply"
-                author_part = name.split(" started by ", 1)[1]
-                # Remove suffix like ", with 1 reply"
-                if ", with " in author_part:
-                    author = author_part.split(", with ")[0]
-                else:
-                    author = author_part
+                if " started by " in name:
+                    author_part = name.split(" started by ", 1)[1]
+                    if ", with " in author_part:
+                        author = author_part.split(", with ")[0]
+                    else:
+                        author = author_part
 
-            if author and description:
-                # Cancel any queued speech and announce our formatted version
-                speech.cancelSpeech()
-                if is_resolved:
-                    formatted = f"Resolved - {author}: {description}"
-                else:
-                    formatted = f"{author}: {description}"
-                ui.message(formatted)
-                log.info(f"Comment reformatted: {formatted[:80]}")
-                return  # Don't call nextHandler - we handled the announcement
+                if author and description:
+                    # Cancel any queued speech and announce our formatted version
+                    speech.cancelSpeech()
+                    if is_resolved:
+                        formatted = f"Resolved - {author}: {description}"
+                    else:
+                        formatted = f"{author}: {description}"
+                    ui.message(formatted)
+                    log.info(f"Comment reformatted: {formatted[:80]}")
+                    return  # Don't call nextHandler - we handled the announcement
+
+        except Exception as e:
+            log.error(f"event_gainFocus error: {e}")
 
         nextHandler()
 
