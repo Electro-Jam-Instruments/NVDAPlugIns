@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.45"
+ADDON_VERSION = "0.0.46"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -201,6 +201,7 @@ class PowerPointWorker:
     v0.0.43: Also reformat reply comments (postRoot_) - strip date/time, announce as "Reply - Author: text".
     v0.0.44: Auto-tab from NewCommentButton to first comment on initial pane entry.
     v0.0.45: Fix auto-tab on PageUp/PageDown slide navigation - reset flag before navigate.
+    v0.0.46: Use _pending_auto_focus flag for reliable auto-tab after slide navigation.
     """
 
     # View type constants
@@ -753,6 +754,7 @@ class AppModule(AppModule):
         v0.0.38: Re-added try/except - was causing silent crashes.
         v0.0.43: Also reformat reply comments (postRoot_) to remove date/time.
         v0.0.44: Auto-tab from NewCommentButton to first comment.
+        v0.0.46: Use _pending_auto_focus for reliable auto-tab after slide navigation.
         """
         try:
             import re
@@ -773,17 +775,32 @@ class AppModule(AppModule):
                 uia_id.startswith('postRoot_')
             )
 
-            # Reset flag when leaving Comments pane
+            # Reset flags when leaving Comments pane
             if not is_in_comments:
                 self._in_comments_pane = False
+                self._pending_auto_focus = False
 
-            # v0.0.44: Auto-tab from NewCommentButton to first comment (only on initial entry)
-            if uia_id == 'NewCommentButton':
+            # v0.0.46: Check for pending auto-focus (set by PageUp/PageDown navigation)
+            # This triggers when ANY comments pane element gets focus after slide change
+            if is_in_comments and getattr(self, '_pending_auto_focus', False):
+                self._pending_auto_focus = False
+                self._in_comments_pane = True
+                # If we landed on NewCommentButton, tab to first comment
+                if uia_id == 'NewCommentButton':
+                    log.info("Auto-focus after slide change - tabbing to first comment")
+                    KeyboardInputGesture.fromName("tab").send()
+                    return  # Don't announce the button
+                # If we landed directly on a comment, just mark as in pane (no tab needed)
+                else:
+                    log.info(f"Auto-focus after slide change - already on comment: {uia_id[:30]}")
+
+            # v0.0.44: Auto-tab from NewCommentButton on initial F6 entry
+            elif uia_id == 'NewCommentButton':
                 # Only auto-tab if we're entering the Comments pane for the first time
                 # (not if user navigated back to the button)
                 if not getattr(self, '_in_comments_pane', False):
                     self._in_comments_pane = True
-                    log.info("Entering Comments pane - auto-tabbing to first comment")
+                    log.info("Entering Comments pane via F6 - auto-tabbing to first comment")
                     # Send Tab key to move to first comment
                     KeyboardInputGesture.fromName("tab").send()
                     return  # Don't announce the button
@@ -893,12 +910,13 @@ class AppModule(AppModule):
 
         v0.0.22: PageDown switches slides while in Comments pane.
         v0.0.23: Use request_navigate() to queue for worker thread.
-        v0.0.45: Reset _in_comments_pane so auto-tab triggers after slide change.
+        v0.0.46: Set _pending_auto_focus to trigger auto-tab when focus returns.
         Otherwise, passes the key through to PowerPoint.
         """
         if self._is_in_comments_pane() and self._worker:
             log.info("PageDown in Comments pane - requesting next slide")
-            # v0.0.45: Reset flag so auto-tab triggers when focus returns to Comments pane
+            # v0.0.46: Set pending flag so auto-tab triggers when focus returns
+            self._pending_auto_focus = True
             self._in_comments_pane = False
             self._worker.request_navigate(1)
         else:
@@ -915,12 +933,13 @@ class AppModule(AppModule):
 
         v0.0.22: PageUp switches slides while in Comments pane.
         v0.0.23: Use request_navigate() to queue for worker thread.
-        v0.0.45: Reset _in_comments_pane so auto-tab triggers after slide change.
+        v0.0.46: Set _pending_auto_focus to trigger auto-tab when focus returns.
         Otherwise, passes the key through to PowerPoint.
         """
         if self._is_in_comments_pane() and self._worker:
             log.info("PageUp in Comments pane - requesting previous slide")
-            # v0.0.45: Reset flag so auto-tab triggers when focus returns to Comments pane
+            # v0.0.46: Set pending flag so auto-tab triggers when focus returns
+            self._pending_auto_focus = True
             self._in_comments_pane = False
             self._worker.request_navigate(-1)
         else:
