@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.23"
+ADDON_VERSION = "0.0.24"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -178,6 +178,7 @@ class PowerPointWorker:
     v0.0.21: Define EApplication interface locally, use _AdviseConnection (NVDA pattern).
     v0.0.22: Use sel.Parent to get correct window when multiple presentations open.
     v0.0.23: Fix COM threading - queue navigation requests to worker thread.
+    v0.0.24: Track Comments pane state to avoid redundant open/toggle calls.
     """
 
     # View type constants
@@ -201,6 +202,8 @@ class PowerPointWorker:
         self._current_window = None
         # v0.0.23: Queue for navigation requests from main thread
         self._nav_request = None  # Will be direction: 1 for next, -1 for previous
+        # v0.0.24: Track Comments pane state to avoid redundant toggles
+        self._comments_pane_opened = False
 
     def start(self):
         """Start the background thread."""
@@ -337,6 +340,9 @@ class PowerPointWorker:
                 dynamic=True
             )
             log.info("Worker: Connected to PowerPoint COM")
+
+            # v0.0.24: Reset pane state on reinit - different presentation may not have pane open
+            self._comments_pane_opened = False
 
             if self._has_active_presentation():
                 log.info("Worker: Active presentation found")
@@ -579,13 +585,23 @@ class PowerPointWorker:
             self._open_comments_pane()
 
     def _open_comments_pane(self):
-        """Open the Comments task pane if not visible."""
+        """Open the Comments task pane if not already opened this session.
+
+        v0.0.24: Track state to avoid calling ExecuteMso repeatedly.
+        ExecuteMso toggles the pane, so calling it when already open would close it.
+        """
+        # v0.0.24: Skip if we already opened the pane this session
+        if self._comments_pane_opened:
+            log.debug("Worker: Comments pane already opened - skipping ExecuteMso")
+            return True
+
         try:
             # Try multiple command names (varies by Office version)
-            for cmd in ["ReviewShowComments", "ShowComments", "CommentsPane"]:
+            for cmd in ["CommentsPane", "ReviewShowComments", "ShowComments"]:
                 try:
                     self._ppt_app.CommandBars.ExecuteMso(cmd)
                     log.info(f"Worker: Opened Comments pane via {cmd}")
+                    self._comments_pane_opened = True
                     return True
                 except Exception as e:
                     log.debug(f"Worker: Command {cmd} failed - {e}")
