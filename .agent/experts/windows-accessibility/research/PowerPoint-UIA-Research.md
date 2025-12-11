@@ -549,6 +549,46 @@ ppt = win32com.client.DispatchWithEvents(
 pythoncom.PumpMessages()
 ```
 
+### Getting Slide Title via COM (Python)
+
+The slide title can be accessed through the `Shapes.Title` property. This is useful for
+announcing slide context during navigation.
+
+```python
+import win32com.client
+
+ppt = win32com.client.Dispatch("PowerPoint.Application")
+window = ppt.ActiveWindow
+slide = window.View.Slide
+
+# Check if slide has a title placeholder
+if slide.Shapes.HasTitle:
+    title_shape = slide.Shapes.Title
+    if title_shape.HasTextFrame:
+        text_frame = title_shape.TextFrame
+        if text_frame.HasText:
+            title_text = text_frame.TextRange.Text.strip()
+            print(f"Slide title: {title_text}")
+else:
+    print("Slide has no title placeholder")
+
+# Get slide number and total
+slide_index = slide.SlideIndex
+total_slides = window.Presentation.Slides.Count
+print(f"Slide {slide_index} of {total_slides}")
+```
+
+**Key COM properties for slide title access:**
+- `Shapes.HasTitle` - Boolean, True if slide has a title placeholder
+- `Shapes.Title` - Returns the Shape object representing the title
+- `Shape.HasTextFrame` - Boolean, True if shape contains text
+- `TextFrame.HasText` - Boolean, True if text frame has content
+- `TextFrame.TextRange.Text` - The actual title text
+
+**References:**
+- [Shapes.Title property (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/PowerPoint.Shapes.Title)
+- [Shapes.HasTitle property (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/PowerPoint.Shapes.HasTitle)
+
 ---
 
 ## 9. NVDA PowerPoint AppModule Analysis

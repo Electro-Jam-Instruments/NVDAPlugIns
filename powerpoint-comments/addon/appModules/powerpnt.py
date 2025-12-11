@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.46"
+ADDON_VERSION = "0.0.47"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -202,6 +202,7 @@ class PowerPointWorker:
     v0.0.44: Auto-tab from NewCommentButton to first comment on initial pane entry.
     v0.0.45: Fix auto-tab on PageUp/PageDown slide navigation - reset flag before navigate.
     v0.0.46: Use _pending_auto_focus flag for reliable auto-tab after slide navigation.
+    v0.0.47: Announce slide number and title on PageUp/PageDown navigation.
     """
 
     # View type constants
@@ -556,6 +557,26 @@ class PowerPointWorker:
             log.debug(f"Worker: Could not get slide index - {e}")
         return -1
 
+    def _get_slide_title(self):
+        """Get the title text of the current slide.
+
+        v0.0.47: Uses Shapes.HasTitle and Shapes.Title to get slide title.
+        Returns empty string if slide has no title placeholder or title is empty.
+        """
+        try:
+            window = self._get_window()
+            if window:
+                slide = window.View.Slide
+                if slide.Shapes.HasTitle:
+                    title_shape = slide.Shapes.Title
+                    if title_shape and title_shape.HasTextFrame:
+                        text_frame = title_shape.TextFrame
+                        if text_frame.HasText:
+                            return text_frame.TextRange.Text.strip()
+        except Exception as e:
+            log.debug(f"Worker: Could not get slide title - {e}")
+        return ""
+
     def _get_comments_on_current_slide(self):
         """Get all comments on current slide."""
         try:
@@ -587,7 +608,24 @@ class PowerPointWorker:
             return []
 
     def _announce_slide_comments(self):
-        """Announce comment status for current slide."""
+        """Announce slide info and comment status for current slide.
+
+        v0.0.47: Announces slide number and title first, then comment count.
+        Format: "{slide_number}: {title}" then "Has X comments" or "No comments"
+        """
+        # v0.0.47: Announce slide number and title
+        slide_index = self._get_current_slide_index()
+        slide_title = self._get_slide_title()
+
+        if slide_index > 0:
+            if slide_title:
+                slide_msg = f"{slide_index}: {slide_title}"
+            else:
+                slide_msg = f"Slide {slide_index}"
+            self._announce(slide_msg)
+            log.info(f"Worker: {slide_msg}")
+
+        # Announce comment count
         comments = self._get_comments_on_current_slide()
 
         if not comments:
