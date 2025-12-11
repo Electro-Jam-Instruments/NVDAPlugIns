@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.39"
+ADDON_VERSION = "0.0.40"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -195,6 +195,7 @@ class PowerPointWorker:
     v0.0.37: Cancel-and-reannounce approach - speech.cancelSpeech() + ui.message() in event_gainFocus.
     v0.0.38: Add diagnostic logging to understand why event_gainFocus not firing for comments.
     v0.0.39: Log description property to find where comment text lives.
+    v0.0.40: Debug logging to trace author/comment_text extraction.
     """
 
     # View type constants
@@ -785,8 +786,11 @@ class AppModule(AppModule):
                     else:
                         author = author_part
 
-                # Use description OR first child name as comment text
-                comment_text = description or first_child_name
+                # Use description as comment text
+                comment_text = description
+
+                # v0.0.40: Debug - log exactly what we extracted
+                log.info(f"COMMENT_EXTRACT: author='{author}', comment_text='{comment_text[:50] if comment_text else '(empty)'}', is_resolved={is_resolved}")
 
                 if author and comment_text:
                     # Cancel any queued speech and announce our formatted version
@@ -798,6 +802,8 @@ class AppModule(AppModule):
                     ui.message(formatted)
                     log.info(f"Comment reformatted: {formatted[:80]}")
                     return  # Don't call nextHandler - we handled the announcement
+                else:
+                    log.info(f"COMMENT_SKIP: author empty={not author}, comment_text empty={not comment_text}")
 
         except Exception as e:
             log.error(f"event_gainFocus error: {e}")
