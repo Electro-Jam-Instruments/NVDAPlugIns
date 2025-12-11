@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.51"
+ADDON_VERSION = "0.0.52"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -625,13 +625,18 @@ class PowerPointWorker:
             log.debug(f"Worker: Could not get slide notes - {e}")
         return ""
 
-    def _has_slide_notes(self):
-        """Check if current slide has notes.
+    def _has_meeting_notes(self):
+        """Check if current slide has meeting notes (marked with ****).
 
         v0.0.49: Returns True if slide has non-empty notes text.
+        v0.0.52: Only returns True if notes contain **** markers (meeting notes).
+        Regular notes without markers are ignored.
         """
         notes = self._get_slide_notes()
-        return bool(notes)
+        if not notes:
+            return False
+        # Only consider notes with **** markers as "meeting notes"
+        return '****' in notes
 
     def _clean_notes_text(self, notes):
         """Clean notes text by removing marker tags.
@@ -652,21 +657,22 @@ class PowerPointWorker:
         return cleaned
 
     def _announce_slide_notes(self):
-        """Announce the notes text for current slide.
+        """Announce the meeting notes text for current slide.
 
         v0.0.49: Called via Ctrl+Alt+N keyboard shortcut.
         v0.0.50: Strips marker tags before announcing.
         v0.0.51: Don't prefix with "Notes:" since user pressed the notes key.
-        Reads full notes text, or announces "No notes" if empty.
+        v0.0.52: Only reads notes that have **** markers (meeting notes).
+        Regular notes without markers are ignored - says "No meeting notes".
         """
         notes = self._get_slide_notes()
-        if notes:
+        if notes and '****' in notes:
             cleaned = self._clean_notes_text(notes)
             self._announce(cleaned)
-            log.info(f"Worker: Announced notes ({len(cleaned)} chars)")
+            log.info(f"Worker: Announced meeting notes ({len(cleaned)} chars)")
         else:
-            self._announce("No notes")
-            log.info("Worker: No notes on slide")
+            self._announce("No meeting notes")
+            log.info("Worker: No meeting notes on slide")
 
     def _get_comments_on_current_slide(self):
         """Get all comments on current slide."""
@@ -737,10 +743,11 @@ class PowerPointWorker:
             # Open Comments pane for slides with comments
             self._open_comments_pane()
 
-        # v0.0.49: Announce if slide has notes
-        if self._has_slide_notes():
-            self._announce("has notes")
-            log.info("Worker: Slide has notes")
+        # v0.0.49: Announce if slide has meeting notes
+        # v0.0.52: Only announce for notes with **** markers (meeting notes)
+        if self._has_meeting_notes():
+            self._announce("has meeting notes")
+            log.info("Worker: Slide has meeting notes")
 
     def _is_comments_pane_visible(self):
         """Check if Comments pane is currently visible.
