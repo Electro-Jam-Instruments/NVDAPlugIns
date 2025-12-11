@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.17"
+ADDON_VERSION = "0.0.18"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -44,6 +44,8 @@ def _get_ppt_events_interface(ppt_app):
 
     Returns the interface class or None if not available.
     Logs detailed error information on failure.
+
+    v0.0.18: Try multiple approaches to load type library.
     """
     global _ppt_events_interface
 
@@ -55,11 +57,12 @@ def _get_ppt_events_interface(ppt_app):
 
         log.info("Attempting to get PowerPoint events interface from type library...")
 
-        # Generate the PowerPoint type library wrapper
-        # This creates Python classes for all PowerPoint COM interfaces
+        # Approach 1: Use GetModule with the running application object
+        # This extracts type info directly from the running PowerPoint instance
         try:
-            ppt_gen = comtypes.client.GetModule(['{91493440-5A91-11CF-8700-00AA0060263B}', 1, 0])
-            log.info(f"PowerPoint type library loaded: {ppt_gen}")
+            log.info("Trying GetModule with ppt_app object...")
+            ppt_gen = comtypes.client.GetModule(ppt_app)
+            log.info(f"PowerPoint type library loaded from app: {ppt_gen}")
 
             # Look for EApplication interface (the events interface)
             if hasattr(ppt_gen, 'EApplication'):
@@ -67,13 +70,65 @@ def _get_ppt_events_interface(ppt_app):
                 log.info(f"Found EApplication interface: {_ppt_events_interface}")
                 return _ppt_events_interface
             else:
-                log.warning("EApplication interface not found in type library")
+                log.warning("EApplication interface not found via app object")
                 # List available interfaces for debugging
                 interfaces = [name for name in dir(ppt_gen) if not name.startswith('_')]
-                log.debug(f"Available interfaces: {interfaces[:20]}...")  # First 20
+                log.info(f"Available interfaces (first 30): {interfaces[:30]}")
 
         except Exception as e:
-            log.error(f"Failed to load PowerPoint type library: {e}")
+            log.warning(f"GetModule with app object failed: {e}")
+
+        # Approach 2: Try GUID-based loading (may work on some systems)
+        try:
+            log.info("Trying GetModule with GUID...")
+            ppt_gen = comtypes.client.GetModule(['{91493440-5A91-11CF-8700-00AA0060263B}', 1, 0])
+            log.info(f"PowerPoint type library loaded from GUID: {ppt_gen}")
+
+            if hasattr(ppt_gen, 'EApplication'):
+                _ppt_events_interface = ppt_gen.EApplication
+                log.info(f"Found EApplication interface: {_ppt_events_interface}")
+                return _ppt_events_interface
+
+        except Exception as e:
+            log.warning(f"GetModule with GUID failed: {e}")
+
+        # Approach 3: Try to find the type library by path
+        try:
+            import winreg
+            log.info("Trying to find PowerPoint type library in registry...")
+
+            # Look for PowerPoint type library in registry
+            key_path = r"SOFTWARE\Classes\TypeLib\{91493440-5A91-11CF-8700-00AA0060263B}\1.0\0\win32"
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+                    tlb_path, _ = winreg.QueryValueEx(key, "")
+                    log.info(f"Found type library at: {tlb_path}")
+                    ppt_gen = comtypes.client.GetModule(tlb_path)
+                    if hasattr(ppt_gen, 'EApplication'):
+                        _ppt_events_interface = ppt_gen.EApplication
+                        log.info(f"Found EApplication interface: {_ppt_events_interface}")
+                        return _ppt_events_interface
+            except FileNotFoundError:
+                log.warning("Type library not found in HKLM registry")
+
+            # Try HKEY_CLASSES_ROOT
+            key_path = r"TypeLib\{91493440-5A91-11CF-8700-00AA0060263B}\1.0\0\win32"
+            try:
+                with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, key_path) as key:
+                    tlb_path, _ = winreg.QueryValueEx(key, "")
+                    log.info(f"Found type library at: {tlb_path}")
+                    ppt_gen = comtypes.client.GetModule(tlb_path)
+                    if hasattr(ppt_gen, 'EApplication'):
+                        _ppt_events_interface = ppt_gen.EApplication
+                        log.info(f"Found EApplication interface: {_ppt_events_interface}")
+                        return _ppt_events_interface
+            except FileNotFoundError:
+                log.warning("Type library not found in HKCR registry")
+
+        except Exception as e:
+            log.warning(f"Registry approach failed: {e}")
+
+        log.error("All approaches to load PowerPoint type library failed")
 
     except Exception as e:
         log.error(f"Failed to get events interface: {e}")
@@ -165,6 +220,7 @@ class PowerPointWorker:
 
     v0.0.16: Uses COM events instead of polling for slide change detection.
     v0.0.17: Fixed import error in type library loading.
+    v0.0.18: Multiple approaches to load type library (app object, GUID, registry).
     """
 
     # View type constants
