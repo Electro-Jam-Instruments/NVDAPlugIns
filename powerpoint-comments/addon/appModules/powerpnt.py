@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.38"
+ADDON_VERSION = "0.0.39"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -194,6 +194,7 @@ class PowerPointWorker:
     v0.0.36: Use event_NVDAObject_init for comment reformatting (NVDA recommended pattern).
     v0.0.37: Cancel-and-reannounce approach - speech.cancelSpeech() + ui.message() in event_gainFocus.
     v0.0.38: Add diagnostic logging to understand why event_gainFocus not firing for comments.
+    v0.0.39: Log description property to find where comment text lives.
     """
 
     # View type constants
@@ -759,7 +760,19 @@ class AppModule(AppModule):
             )
 
             if is_comment_card:
+                # v0.0.39: Log all available properties to find comment text
                 description = getattr(obj, 'description', '') or ''
+                value = getattr(obj, 'value', '') or ''
+
+                # Try to get children/first child text
+                first_child_name = ''
+                try:
+                    if obj.firstChild:
+                        first_child_name = getattr(obj.firstChild, 'name', '') or ''
+                except:
+                    pass
+
+                log.info(f"COMMENT_PROPS: desc='{description[:50]}', value='{value[:50]}', child='{first_child_name[:50]}'")
 
                 # Extract author and resolved state from name
                 is_resolved = name.startswith("Resolved ")
@@ -772,13 +785,16 @@ class AppModule(AppModule):
                     else:
                         author = author_part
 
-                if author and description:
+                # Use description OR first child name as comment text
+                comment_text = description or first_child_name
+
+                if author and comment_text:
                     # Cancel any queued speech and announce our formatted version
                     speech.cancelSpeech()
                     if is_resolved:
-                        formatted = f"Resolved - {author}: {description}"
+                        formatted = f"Resolved - {author}: {comment_text}"
                     else:
-                        formatted = f"{author}: {description}"
+                        formatted = f"{author}: {comment_text}"
                     ui.message(formatted)
                     log.info(f"Comment reformatted: {formatted[:80]}")
                     return  # Don't call nextHandler - we handled the announcement
