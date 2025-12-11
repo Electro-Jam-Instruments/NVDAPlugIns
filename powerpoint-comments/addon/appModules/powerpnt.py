@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.32"
+ADDON_VERSION = "0.0.33"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -187,6 +187,7 @@ class PowerPointWorker:
     v0.0.30: Log UIAutomationId on every focus change via event_gainFocus.
     v0.0.31: Clean up diagnostic logging, use UIAutomationId for _is_in_comments_pane.
     v0.0.32: Add comment card diagnostic logging to analyze name/states for trimming.
+    v0.0.33: Reformat comment announcements to "Author: comment" or "Resolved - Author: comment".
     """
 
     # View type constants
@@ -735,33 +736,39 @@ class AppModule(AppModule):
     def event_gainFocus(self, obj, nextHandler):
         """Called when any object in PowerPoint gains focus.
 
-        v0.0.32: Log comment card details for analysis.
+        v0.0.33: Reformat comment card announcements.
+        Format: "Author: comment text" or "Resolved - Author: comment text"
         """
         try:
             uia_id = getattr(obj, 'UIAAutomationId', '') or ''
 
-            # Log full details when focus lands on a comment card
+            # Reformat comment card announcements
             if uia_id.startswith('cardRoot_'):
-                log.info("=" * 60)
-                log.info("COMMENT_CARD_FOCUS:")
-                log.info(f"  UIAAutomationId: {uia_id}")
-                log.info(f"  name: {getattr(obj, 'name', 'N/A')}")
-                log.info(f"  value: {getattr(obj, 'value', 'N/A')}")
-                log.info(f"  description: {getattr(obj, 'description', 'N/A')}")
-                log.info(f"  role: {getattr(obj, 'role', 'N/A')}")
-                log.info(f"  roleText: {getattr(obj, 'roleText', 'N/A')}")
-                log.info(f"  states: {getattr(obj, 'states', 'N/A')}")
+                name = getattr(obj, 'name', '') or ''
+                description = getattr(obj, 'description', '') or ''
 
-                # UIA-specific properties that may contain resolved state
-                for attr in ['UIAElement', 'UIAStates', 'UIAToggleState',
-                             'UIAExpandCollapseState', 'UIAIsSelected']:
-                    val = getattr(obj, attr, None)
-                    if val is not None:
-                        log.info(f"  {attr}: {val}")
+                # Extract author and resolved state from name
+                # Name format: "Comment thread started by Author" or
+                #              "Resolved comment thread started by Author"
+                is_resolved = name.startswith("Resolved ")
+                author = ""
 
-                log.info("=" * 60)
+                if " started by " in name:
+                    author = name.split(" started by ", 1)[1]
+
+                # Build new announcement
+                if author and description:
+                    if is_resolved:
+                        new_name = f"Resolved - {author}: {description}"
+                    else:
+                        new_name = f"{author}: {description}"
+
+                    # Override the name for announcement
+                    obj.name = new_name
+                    log.info(f"Comment reformatted: {new_name}")
+
         except Exception as e:
-            log.debug(f"event_gainFocus logging error: {e}")
+            log.debug(f"event_gainFocus error: {e}")
 
         nextHandler()
 
