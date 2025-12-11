@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.16"
+ADDON_VERSION = "0.0.17"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -51,9 +51,6 @@ def _get_ppt_events_interface(ppt_app):
         return _ppt_events_interface
 
     try:
-        # Get the QueryInterface to access type info
-        from comtypes.typeinfo import IProvideClassInfo2, WIREINTERFACE, ITypeInfo
-        from comtypes import GUID
         import comtypes.client
 
         log.info("Attempting to get PowerPoint events interface from type library...")
@@ -167,6 +164,7 @@ class PowerPointWorker:
     Communicates UI updates back to main thread via queueHandler.
 
     v0.0.16: Uses COM events instead of polling for slide change detection.
+    v0.0.17: Fixed import error in type library loading.
     """
 
     # View type constants
@@ -354,8 +352,7 @@ class PowerPointWorker:
 
                 log.info("Worker: Connected to PowerPoint events successfully")
             else:
-                log.warning("Worker: Could not get PowerPoint events interface - falling back to polling")
-                # TODO: Implement polling fallback if needed
+                log.error("Worker: Could not get PowerPoint events interface - slide change detection disabled")
 
         except Exception as e:
             log.error(f"Worker: Failed to connect to PowerPoint events - {e}")
@@ -450,6 +447,7 @@ class PowerPointWorker:
     def _announce(self, message):
         """Safely announce message on main thread."""
         try:
+            log.info(f"Worker: Announcing '{message}'")
             queueFunction(eventQueue, ui.message, message)
         except Exception as e:
             log.error(f"Failed to queue announcement: {e}")
