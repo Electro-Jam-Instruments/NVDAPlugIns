@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.42"
+ADDON_VERSION = "0.0.43"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -198,6 +198,7 @@ class PowerPointWorker:
     v0.0.40: Debug logging to trace author/comment_text extraction.
     v0.0.41: Additional parse debug logging to find why author extraction fails.
     v0.0.42: Fix whitespace - normalize non-breaking spaces (U+00A0) from PowerPoint.
+    v0.0.43: Also reformat reply comments (postRoot_) - strip date/time, announce as "Reply - Author: text".
     """
 
     # View type constants
@@ -748,40 +749,32 @@ class AppModule(AppModule):
 
         v0.0.37: Cancel-and-reannounce approach for comment cards.
         v0.0.38: Re-added try/except - was causing silent crashes.
+        v0.0.43: Also reformat reply comments (postRoot_) to remove date/time.
         """
         try:
-            # v0.0.38: Log EVERY focus event to diagnose
+            import re
+
             uia_id = getattr(obj, 'UIAAutomationId', '') or ''
             name = getattr(obj, 'name', '') or ''
-            obj_class = obj.__class__.__name__
-            log.info(f"FOCUS: class={obj_class}, uia_id='{uia_id[:40]}', name='{name[:60]}'")
+            description = getattr(obj, 'description', '') or ''
 
-            # Check if this is a comment card
+            # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
+            name_normalized = re.sub(r'\s+', ' ', name)
+
+            # Check if this is a comment thread card (cardRoot_)
             is_comment_card = (
                 uia_id.startswith('cardRoot_') or
-                'Comment thread started by' in name
+                'Comment thread started by' in name_normalized
+            )
+
+            # Check if this is a reply comment (postRoot_)
+            is_reply_comment = (
+                uia_id.startswith('postRoot_') or
+                name_normalized.startswith('Comment by ')
             )
 
             if is_comment_card:
-                # v0.0.39: Log all available properties to find comment text
-                description = getattr(obj, 'description', '') or ''
-                value = getattr(obj, 'value', '') or ''
-
-                # Try to get children/first child text
-                first_child_name = ''
-                try:
-                    if obj.firstChild:
-                        first_child_name = getattr(obj.firstChild, 'name', '') or ''
-                except:
-                    pass
-
-                log.info(f"COMMENT_PROPS: desc='{description[:50]}', value='{value[:50]}', child='{first_child_name[:50]}'")
-
-                # v0.0.42: Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
-                import re
-                name_normalized = re.sub(r'\s+', ' ', name)  # Replace any whitespace with regular space
-
-                # Extract author and resolved state from normalized name
+                # Extract author and resolved state for thread cards
                 is_resolved = name_normalized.startswith("Resolved ")
                 author = ""
 
@@ -792,24 +785,32 @@ class AppModule(AppModule):
                     else:
                         author = author_part
 
-                # Use description as comment text
-                comment_text = description
-
-                # v0.0.40: Debug - log exactly what we extracted
-                log.info(f"COMMENT_EXTRACT: author='{author}', comment_text='{comment_text[:50] if comment_text else '(empty)'}', is_resolved={is_resolved}")
-
-                if author and comment_text:
-                    # Cancel any queued speech and announce our formatted version
+                if author and description:
                     speech.cancelSpeech()
                     if is_resolved:
-                        formatted = f"Resolved - {author}: {comment_text}"
+                        formatted = f"Resolved - {author}: {description}"
                     else:
-                        formatted = f"{author}: {comment_text}"
+                        formatted = f"{author}: {description}"
                     ui.message(formatted)
                     log.info(f"Comment reformatted: {formatted[:80]}")
-                    return  # Don't call nextHandler - we handled the announcement
-                else:
-                    log.info(f"COMMENT_SKIP: author empty={not author}, comment_text empty={not comment_text}")
+                    return
+
+            elif is_reply_comment:
+                # Reply format: "Comment by Author on Month Day, Year, Time"
+                # Extract just the author name
+                author = ""
+                if name_normalized.startswith("Comment by "):
+                    # Remove "Comment by " prefix and extract author before " on "
+                    after_prefix = name_normalized[11:]  # Skip "Comment by "
+                    if " on " in after_prefix:
+                        author = after_prefix.split(" on ", 1)[0]
+
+                if author and description:
+                    speech.cancelSpeech()
+                    formatted = f"Reply - {author}: {description}"
+                    ui.message(formatted)
+                    log.info(f"Reply reformatted: {formatted[:80]}")
+                    return
 
         except Exception as e:
             log.error(f"event_gainFocus error: {e}")
