@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.31"
+ADDON_VERSION = "0.0.32"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -186,6 +186,7 @@ class PowerPointWorker:
     v0.0.29: Add UIAutomationId diagnostic logging to find stable pane identifier.
     v0.0.30: Log UIAutomationId on every focus change via event_gainFocus.
     v0.0.31: Clean up diagnostic logging, use UIAutomationId for _is_in_comments_pane.
+    v0.0.32: Add comment card diagnostic logging to analyze name/states for trimming.
     """
 
     # View type constants
@@ -734,9 +735,34 @@ class AppModule(AppModule):
     def event_gainFocus(self, obj, nextHandler):
         """Called when any object in PowerPoint gains focus.
 
-        v0.0.31: Diagnostic logging removed - kept for future use if needed.
+        v0.0.32: Log comment card details for analysis.
         """
-        # Let NVDA continue processing
+        try:
+            uia_id = getattr(obj, 'UIAAutomationId', '') or ''
+
+            # Log full details when focus lands on a comment card
+            if uia_id.startswith('cardRoot_'):
+                log.info("=" * 60)
+                log.info("COMMENT_CARD_FOCUS:")
+                log.info(f"  UIAAutomationId: {uia_id}")
+                log.info(f"  name: {getattr(obj, 'name', 'N/A')}")
+                log.info(f"  value: {getattr(obj, 'value', 'N/A')}")
+                log.info(f"  description: {getattr(obj, 'description', 'N/A')}")
+                log.info(f"  role: {getattr(obj, 'role', 'N/A')}")
+                log.info(f"  roleText: {getattr(obj, 'roleText', 'N/A')}")
+                log.info(f"  states: {getattr(obj, 'states', 'N/A')}")
+
+                # UIA-specific properties that may contain resolved state
+                for attr in ['UIAElement', 'UIAStates', 'UIAToggleState',
+                             'UIAExpandCollapseState', 'UIAIsSelected']:
+                    val = getattr(obj, attr, None)
+                    if val is not None:
+                        log.info(f"  {attr}: {val}")
+
+                log.info("=" * 60)
+        except Exception as e:
+            log.debug(f"event_gainFocus logging error: {e}")
+
         nextHandler()
 
     def _is_in_comments_pane(self):

@@ -238,6 +238,42 @@ Comments Pane (Pane)
 | Move between elements | Tab / Shift+Tab | Tab / Shift+Tab |
 | Toggle comment/anchor | Alt+F12 | Option+F12 |
 
+### Stable UIAutomationId Identifiers (v0.0.30 Research)
+
+The following UIAutomationId values were discovered through NVDA addon development testing (December 2025) and provide stable, non-localized identifiers for Comments pane elements:
+
+| UIAutomationId | Element | Match Type | Notes |
+|---------------|---------|------------|-------|
+| `NewCommentButton` | New comment button | Exact | Always present in pane |
+| `CommentsList` | Comments container | Exact | Role=20 (list) |
+| `cardRoot_<N>_<GUID>` | Comment thread | Prefix | N=position, GUID=unique per comment |
+| `firstPaneElement<GUID>` | Comments Pane root | Prefix | Role=56, name="Comments Pane" |
+
+**Pattern Details:**
+- `cardRoot_` format: `cardRoot_1_B0759BAC-813A-4A38-BF43-124049563ACD`
+  - The `_1_` portion appears constant (may indicate nesting level)
+  - GUID is unique per comment thread
+- `firstPaneElement` format: `firstPaneElement5F6E8B9B-F2EF-4238-B749-89D6F5F132DD`
+  - GUID appears stable within a session
+  - Identifies the pane container in parent chain
+
+**Usage in NVDA Addon:**
+```python
+# Check if focus is in Comments pane using stable UIAutomationId
+uia_id = getattr(obj, 'UIAAutomationId', '') or ''
+if (uia_id == 'NewCommentButton' or
+    uia_id == 'CommentsList' or
+    uia_id.startswith('cardRoot_') or
+    uia_id.startswith('firstPaneElement')):
+    # Focus is inside Comments pane
+    return True
+```
+
+**Advantages over name-based detection:**
+- Not dependent on localized text (works in any language)
+- More reliable than checking for "comment" in element names
+- Survives Office UI updates that may change display text
+
 ### Screen Reader Behavior
 
 - **NVDA:** Reads comments automatically when focused
