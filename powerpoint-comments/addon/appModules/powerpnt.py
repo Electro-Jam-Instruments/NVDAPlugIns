@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.36"
+ADDON_VERSION = "0.0.37"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -23,6 +23,7 @@ log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 
 # Additional imports for our functionality
 import comHelper  # NVDA's COM helper - handles UIAccess privilege issues
+import speech  # For canceling queued speech (v0.0.37)
 import ui
 import api
 import threading
@@ -191,6 +192,7 @@ class PowerPointWorker:
     v0.0.34: Fix comment detection - use name-based fallback when UIAAutomationId not available.
     v0.0.35: Add debug logging to diagnose why reformatting is not triggering.
     v0.0.36: Use event_NVDAObject_init for comment reformatting (NVDA recommended pattern).
+    v0.0.37: Cancel-and-reannounce approach - speech.cancelSpeech() + ui.message() in event_gainFocus.
     """
 
     # View type constants
@@ -736,58 +738,51 @@ class AppModule(AppModule):
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
 
-    def event_NVDAObject_init(self, obj):
-        """Called when an NVDA object is initialized - BEFORE properties are cached.
-
-        v0.0.36: Use this instead of event_gainFocus to modify name before announcement.
-        Per NVDA Developer Guide: this is the recommended approach for property modifications.
-        https://download.nvaccess.org/documentation/developerGuide.html
-        """
-        try:
-            uia_id = getattr(obj, 'UIAAutomationId', '') or ''
-            name = getattr(obj, 'name', '') or ''
-
-            # Check if this is a comment card
-            is_comment_card = (
-                uia_id.startswith('cardRoot_') or
-                'Comment thread started by' in name
-            )
-
-            if is_comment_card:
-                description = getattr(obj, 'description', '') or ''
-
-                # Extract author and resolved state from name
-                # Name format: "Comment thread started by Author" or
-                #              "Resolved comment thread started by Author"
-                is_resolved = name.startswith("Resolved ")
-                author = ""
-
-                if " started by " in name:
-                    # Author may have suffix like ", with 1 reply"
-                    author_part = name.split(" started by ", 1)[1]
-                    # Remove suffix like ", with 1 reply"
-                    if ", with " in author_part:
-                        author = author_part.split(", with ")[0]
-                    else:
-                        author = author_part
-
-                # Build and set new name
-                if author and description:
-                    if is_resolved:
-                        obj.name = f"Resolved - {author}: {description}"
-                    else:
-                        obj.name = f"{author}: {description}"
-                    log.info(f"Comment reformatted: {obj.name}")
-
-        except Exception as e:
-            log.debug(f"event_NVDAObject_init error: {e}")
-
     def event_gainFocus(self, obj, nextHandler):
         """Called when any object in PowerPoint gains focus.
 
-        v0.0.36: Comment reformatting moved to event_NVDAObject_init.
-        This handler kept for future use if needed.
+        v0.0.37: Cancel-and-reannounce approach for comment cards.
+        Since event_NVDAObject_init doesn't work for UIA objects, we detect
+        comment cards here, cancel queued speech, and announce our formatted version.
         """
+        # Check if this is a comment card
+        uia_id = getattr(obj, 'UIAAutomationId', '') or ''
+        name = getattr(obj, 'name', '') or ''
+
+        is_comment_card = (
+            uia_id.startswith('cardRoot_') or
+            'Comment thread started by' in name
+        )
+
+        if is_comment_card:
+            description = getattr(obj, 'description', '') or ''
+
+            # Extract author and resolved state from name
+            # Name format: "Comment thread started by Author" or
+            #              "Resolved comment thread started by Author"
+            is_resolved = name.startswith("Resolved ")
+            author = ""
+
+            if " started by " in name:
+                # Author may have suffix like ", with 1 reply"
+                author_part = name.split(" started by ", 1)[1]
+                # Remove suffix like ", with 1 reply"
+                if ", with " in author_part:
+                    author = author_part.split(", with ")[0]
+                else:
+                    author = author_part
+
+            if author and description:
+                # Cancel any queued speech and announce our formatted version
+                speech.cancelSpeech()
+                if is_resolved:
+                    formatted = f"Resolved - {author}: {description}"
+                else:
+                    formatted = f"{author}: {description}"
+                ui.message(formatted)
+                log.info(f"Comment reformatted: {formatted[:80]}")
+                return  # Don't call nextHandler - we handled the announcement
+
         nextHandler()
 
     def _is_in_comments_pane(self):
