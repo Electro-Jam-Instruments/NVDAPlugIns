@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.43"
+ADDON_VERSION = "0.0.44"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -199,6 +199,7 @@ class PowerPointWorker:
     v0.0.41: Additional parse debug logging to find why author extraction fails.
     v0.0.42: Fix whitespace - normalize non-breaking spaces (U+00A0) from PowerPoint.
     v0.0.43: Also reformat reply comments (postRoot_) - strip date/time, announce as "Reply - Author: text".
+    v0.0.44: Auto-tab from NewCommentButton to first comment on initial pane entry.
     """
 
     # View type constants
@@ -750,9 +751,12 @@ class AppModule(AppModule):
         v0.0.37: Cancel-and-reannounce approach for comment cards.
         v0.0.38: Re-added try/except - was causing silent crashes.
         v0.0.43: Also reformat reply comments (postRoot_) to remove date/time.
+        v0.0.44: Auto-tab from NewCommentButton to first comment.
         """
         try:
             import re
+            from inputCore import manager as inputManager
+            from keyboardHandler import KeyboardInputGesture
 
             uia_id = getattr(obj, 'UIAAutomationId', '') or ''
             name = getattr(obj, 'name', '') or ''
@@ -760,6 +764,28 @@ class AppModule(AppModule):
 
             # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
             name_normalized = re.sub(r'\s+', ' ', name)
+
+            # Detect if we're in the Comments pane (NewCommentButton, cardRoot_, or postRoot_)
+            is_in_comments = (
+                uia_id == 'NewCommentButton' or
+                uia_id.startswith('cardRoot_') or
+                uia_id.startswith('postRoot_')
+            )
+
+            # Reset flag when leaving Comments pane
+            if not is_in_comments:
+                self._in_comments_pane = False
+
+            # v0.0.44: Auto-tab from NewCommentButton to first comment (only on initial entry)
+            if uia_id == 'NewCommentButton':
+                # Only auto-tab if we're entering the Comments pane for the first time
+                # (not if user navigated back to the button)
+                if not getattr(self, '_in_comments_pane', False):
+                    self._in_comments_pane = True
+                    log.info("Entering Comments pane - auto-tabbing to first comment")
+                    # Send Tab key to move to first comment
+                    KeyboardInputGesture.fromName("tab").send()
+                    return  # Don't announce the button
 
             # Check if this is a comment thread card (cardRoot_)
             is_comment_card = (
