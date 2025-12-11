@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.35"
+ADDON_VERSION = "0.0.36"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -190,6 +190,7 @@ class PowerPointWorker:
     v0.0.33: Reformat comment announcements to "Author: comment" or "Resolved - Author: comment".
     v0.0.34: Fix comment detection - use name-based fallback when UIAAutomationId not available.
     v0.0.35: Add debug logging to diagnose why reformatting is not triggering.
+    v0.0.36: Use event_NVDAObject_init for comment reformatting (NVDA recommended pattern).
     """
 
     # View type constants
@@ -735,22 +736,18 @@ class AppModule(AppModule):
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
 
-    def event_gainFocus(self, obj, nextHandler):
-        """Called when any object in PowerPoint gains focus.
+    def event_NVDAObject_init(self, obj):
+        """Called when an NVDA object is initialized - BEFORE properties are cached.
 
-        v0.0.34: Reformat comment card announcements.
-        Format: "Author: comment text" or "Resolved - Author: comment text"
+        v0.0.36: Use this instead of event_gainFocus to modify name before announcement.
+        Per NVDA Developer Guide: this is the recommended approach for property modifications.
+        https://download.nvaccess.org/documentation/developerGuide.html
         """
         try:
             uia_id = getattr(obj, 'UIAAutomationId', '') or ''
             name = getattr(obj, 'name', '') or ''
 
-            # Debug: Log all focus changes with "Comment" in name
-            if 'Comment' in name or 'comment' in name:
-                log.info(f"FOCUS_DEBUG: uia_id='{uia_id}', name='{name[:80]}...'")
-
-            # Reformat comment card announcements
-            # Try both UIAAutomationId and name-based detection
+            # Check if this is a comment card
             is_comment_card = (
                 uia_id.startswith('cardRoot_') or
                 'Comment thread started by' in name
@@ -758,8 +755,6 @@ class AppModule(AppModule):
 
             if is_comment_card:
                 description = getattr(obj, 'description', '') or ''
-                log.info(f"COMMENT_CARD: author extraction from name='{name}'")
-                log.info(f"COMMENT_CARD: description='{description}'")
 
                 # Extract author and resolved state from name
                 # Name format: "Comment thread started by Author" or
@@ -775,24 +770,24 @@ class AppModule(AppModule):
                         author = author_part.split(", with ")[0]
                     else:
                         author = author_part
-                    log.info(f"COMMENT_CARD: extracted author='{author}'")
 
-                # Build new announcement
+                # Build and set new name
                 if author and description:
                     if is_resolved:
-                        new_name = f"Resolved - {author}: {description}"
+                        obj.name = f"Resolved - {author}: {description}"
                     else:
-                        new_name = f"{author}: {description}"
-
-                    # Override the name for announcement
-                    obj.name = new_name
-                    log.info(f"Comment reformatted: {new_name}")
-                else:
-                    log.info(f"COMMENT_CARD: SKIPPED - author='{author}', description='{description}'")
+                        obj.name = f"{author}: {description}"
+                    log.info(f"Comment reformatted: {obj.name}")
 
         except Exception as e:
-            log.debug(f"event_gainFocus error: {e}")
+            log.debug(f"event_NVDAObject_init error: {e}")
 
+    def event_gainFocus(self, obj, nextHandler):
+        """Called when any object in PowerPoint gains focus.
+
+        v0.0.36: Comment reformatting moved to event_NVDAObject_init.
+        This handler kept for future use if needed.
+        """
         nextHandler()
 
     def _is_in_comments_pane(self):

@@ -274,6 +274,65 @@ if (uia_id == 'NewCommentButton' or
 - More reliable than checking for "comment" in element names
 - Survives Office UI updates that may change display text
 
+### Comment Card Announcement Reformatting (v0.0.36)
+
+**Problem:** The default comment card announcement is verbose:
+```
+"Comment thread started by Brett Humphrey, with 1 reply"
+```
+
+**Solution:** Reformat to concise author + comment text:
+- Unresolved: `"Brett Humphrey: @John Smith please review..."`
+- Resolved: `"Resolved - Brett Humphrey: Should we add a note..."`
+
+**Technical Implementation:**
+
+Per the [NVDA Developer Guide](https://download.nvaccess.org/documentation/developerGuide.html), use `event_NVDAObject_init` to modify object properties BEFORE NVDA caches them:
+
+```python
+def event_NVDAObject_init(self, obj):
+    """Modify object name before NVDA caches it for announcement."""
+    uia_id = getattr(obj, 'UIAAutomationId', '') or ''
+    name = getattr(obj, 'name', '') or ''
+
+    is_comment_card = (
+        uia_id.startswith('cardRoot_') or
+        'Comment thread started by' in name
+    )
+
+    if is_comment_card:
+        description = getattr(obj, 'description', '') or ''
+        is_resolved = name.startswith("Resolved ")
+
+        # Extract author from "Comment thread started by Author"
+        if " started by " in name:
+            author_part = name.split(" started by ", 1)[1]
+            if ", with " in author_part:
+                author = author_part.split(", with ")[0]
+            else:
+                author = author_part
+
+            if author and description:
+                if is_resolved:
+                    obj.name = f"Resolved - {author}: {description}"
+                else:
+                    obj.name = f"{author}: {description}"
+```
+
+**Why event_NVDAObject_init instead of event_gainFocus:**
+- `event_gainFocus` runs AFTER NVDA caches properties and queues announcement (too late)
+- `event_NVDAObject_init` runs DURING object creation, BEFORE caching (correct timing)
+
+**Comment Card Properties (from v0.0.32 research):**
+
+| Property | Content |
+|----------|---------|
+| `name` | "Comment thread started by Author" or "Resolved comment thread started by Author" |
+| `description` | The actual comment text (e.g., "@John Smith please review the title") |
+| `UIAAutomationId` | `cardRoot_1_<GUID>` |
+| `role` | 21 (list item) |
+| `states` | FOCUSABLE, COLLAPSED, FOCUSED |
+
 ### Screen Reader Behavior
 
 - **NVDA:** Reads comments automatically when focused
