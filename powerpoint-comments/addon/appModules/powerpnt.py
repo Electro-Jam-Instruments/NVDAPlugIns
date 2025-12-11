@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.34"
+ADDON_VERSION = "0.0.35"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -189,6 +189,7 @@ class PowerPointWorker:
     v0.0.32: Add comment card diagnostic logging to analyze name/states for trimming.
     v0.0.33: Reformat comment announcements to "Author: comment" or "Resolved - Author: comment".
     v0.0.34: Fix comment detection - use name-based fallback when UIAAutomationId not available.
+    v0.0.35: Add debug logging to diagnose why reformatting is not triggering.
     """
 
     # View type constants
@@ -757,6 +758,8 @@ class AppModule(AppModule):
 
             if is_comment_card:
                 description = getattr(obj, 'description', '') or ''
+                log.info(f"COMMENT_CARD: author extraction from name='{name}'")
+                log.info(f"COMMENT_CARD: description='{description}'")
 
                 # Extract author and resolved state from name
                 # Name format: "Comment thread started by Author" or
@@ -772,6 +775,7 @@ class AppModule(AppModule):
                         author = author_part.split(", with ")[0]
                     else:
                         author = author_part
+                    log.info(f"COMMENT_CARD: extracted author='{author}'")
 
                 # Build new announcement
                 if author and description:
@@ -783,6 +787,8 @@ class AppModule(AppModule):
                     # Override the name for announcement
                     obj.name = new_name
                     log.info(f"Comment reformatted: {new_name}")
+                else:
+                    log.info(f"COMMENT_CARD: SKIPPED - author='{author}', description='{description}'")
 
         except Exception as e:
             log.debug(f"event_gainFocus error: {e}")
