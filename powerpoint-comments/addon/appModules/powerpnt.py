@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.21"
+ADDON_VERSION = "0.0.22"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -24,6 +24,7 @@ log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 # Additional imports for our functionality
 import comHelper  # NVDA's COM helper - handles UIAccess privilege issues
 import ui
+import api
 import threading
 import ctypes
 import comtypes
@@ -31,6 +32,8 @@ from comtypes import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, C
 from comtypes.automation import IDispatch
 from comtypes.client._events import _AdviseConnection
 from queueHandler import queueFunction, eventQueue
+from scriptHandler import script
+import inputCore
 
 # ============================================================================
 # COM Event Interface - Defined Locally (v0.0.21)
@@ -40,6 +43,8 @@ from queueHandler import queueFunction, eventQueue
 # 1. PowerPoint's type library fails to load ("Library not registered")
 # 2. This is exactly how NVDA's built-in powerpnt.py does it
 # 3. It's reliable and doesn't depend on system type library registration
+#
+# v0.0.22: Use sel.Parent to get correct window when multiple presentations open
 #
 # See: .agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md
 
@@ -101,18 +106,33 @@ class PowerPointEventSink(COMObject):
         This event fires for text, shape, and slide selections.
         We check if the slide index has changed.
 
+        v0.0.22: Use sel.Parent to get the SPECIFIC window that triggered the event.
+        This fixes wrong data when multiple presentations are open.
+
         Args:
-            sel: Selection object (IDispatch)
+            sel: Selection object (IDispatch) - sel.Parent returns the DocumentWindow
         """
         try:
             log.debug("PowerPointEventSink: WindowSelectionChange event received")
             if self._worker and self._worker._ppt_app:
                 try:
-                    current_index = self._worker._ppt_app.ActiveWindow.View.Slide.SlideIndex
-                    if current_index != self._last_slide_index:
-                        log.info(f"PowerPointEventSink: Slide changed to {current_index}")
-                        self._last_slide_index = current_index
-                        self._worker.on_slide_changed_event(current_index)
+                    # v0.0.22: Get the SPECIFIC window from sel.Parent
+                    # This is the key fix for multiple presentations
+                    window = None
+                    try:
+                        window = sel.Parent
+                        log.debug("PowerPointEventSink: Got window from sel.Parent")
+                    except Exception as e:
+                        log.debug(f"PowerPointEventSink: sel.Parent failed ({e}), using ActiveWindow")
+                        window = self._worker._ppt_app.ActiveWindow
+
+                    if window:
+                        current_index = window.View.Slide.SlideIndex
+                        if current_index != self._last_slide_index:
+                            log.info(f"PowerPointEventSink: Slide changed to {current_index}")
+                            self._last_slide_index = current_index
+                            # Pass the specific window to the worker
+                            self._worker.on_slide_changed_event(current_index, window)
                 except Exception as e:
                     log.debug(f"PowerPointEventSink: Could not get slide - {e}")
         except Exception as e:
@@ -156,6 +176,7 @@ class PowerPointWorker:
     v0.0.19: Use wireEApplication from NVDA's built-in module instead of loading type library.
     v0.0.20: Access wireEApplication via direct module import (not relying on import *).
     v0.0.21: Define EApplication interface locally, use _AdviseConnection (NVDA pattern).
+    v0.0.22: Use sel.Parent to get correct window when multiple presentations open.
     """
 
     # View type constants
@@ -175,6 +196,8 @@ class PowerPointWorker:
         self._initialized = False
         # Track last slide for duplicate detection
         self._last_announced_slide = -1
+        # v0.0.22: Store current window for correct multi-presentation support
+        self._current_window = None
 
     def start(self):
         """Start the background thread."""
@@ -381,15 +404,24 @@ class PowerPointWorker:
         except Exception as e:
             log.debug(f"Worker: Error checking initial slide - {e}")
 
-    def on_slide_changed_event(self, slide_index):
+    def on_slide_changed_event(self, slide_index, window=None):
         """Called by event sink when slide changes.
 
         This runs on the COM thread (our worker thread).
 
         Args:
             slide_index: New slide index (1-based)
+            window: The specific DocumentWindow that triggered the event (v0.0.22)
         """
         log.info(f"Worker: Slide change event received - slide {slide_index}")
+
+        # v0.0.22: Store the window for use by other methods
+        if window:
+            self._current_window = window
+            log.debug("Worker: Using specific window from event")
+        elif not self._current_window and self._ppt_app:
+            self._current_window = self._ppt_app.ActiveWindow
+            log.debug("Worker: Falling back to ActiveWindow")
 
         # Avoid duplicate announcements
         if slide_index == self._last_announced_slide:
@@ -416,11 +448,20 @@ class PowerPointWorker:
             log.debug(f"No active presentation: {e}")
             return False
 
+    def _get_window(self):
+        """Get the current window (v0.0.22: prefer stored window over ActiveWindow)."""
+        if self._current_window:
+            return self._current_window
+        if self._ppt_app:
+            return self._ppt_app.ActiveWindow
+        return None
+
     def _get_current_view(self):
         """Get current PowerPoint view type."""
         try:
-            if self._ppt_app and self._ppt_app.ActiveWindow:
-                view_type = self._ppt_app.ActiveWindow.ViewType
+            window = self._get_window()
+            if window:
+                view_type = window.ViewType
                 log.debug(f"View type detected: {view_type}")
                 return view_type
         except Exception as e:
@@ -430,12 +471,14 @@ class PowerPointWorker:
     def _ensure_normal_view(self):
         """Switch to Normal view if not already there."""
         try:
+            window = self._get_window()
             current_view = self._get_current_view()
             if current_view is not None and current_view != self.PP_VIEW_NORMAL:
                 log.info(f"Switching view from {current_view} to Normal")
-                self._ppt_app.ActiveWindow.ViewType = self.PP_VIEW_NORMAL
-                self._announce("Switched to Normal view")
-                return True
+                if window:
+                    window.ViewType = self.PP_VIEW_NORMAL
+                    self._announce("Switched to Normal view")
+                    return True
             else:
                 log.debug("Already in Normal view")
         except Exception as e:
@@ -453,8 +496,9 @@ class PowerPointWorker:
     def _get_current_slide_index(self):
         """Get current slide index (1-based)."""
         try:
-            if self._ppt_app and self._ppt_app.ActiveWindow:
-                return self._ppt_app.ActiveWindow.View.Slide.SlideIndex
+            window = self._get_window()
+            if window:
+                return window.View.Slide.SlideIndex
         except Exception as e:
             log.debug(f"Worker: Could not get slide index - {e}")
         return -1
@@ -462,7 +506,12 @@ class PowerPointWorker:
     def _get_comments_on_current_slide(self):
         """Get all comments on current slide."""
         try:
-            slide = self._ppt_app.ActiveWindow.View.Slide
+            window = self._get_window()
+            if not window:
+                log.debug("Worker: No window available for getting comments")
+                return []
+
+            slide = window.View.Slide
             comments = []
             comment_count = slide.Comments.Count
             log.debug(f"Worker: Found {comment_count} comments on slide")
@@ -517,6 +566,47 @@ class PowerPointWorker:
             log.error(f"Worker: Error opening Comments pane - {e}")
         return False
 
+    def navigate_slide(self, direction):
+        """Navigate to next or previous slide.
+
+        v0.0.22: Added for PageUp/PageDown support in Comments pane.
+
+        Args:
+            direction: 1 for next slide, -1 for previous slide
+
+        Returns:
+            True if navigation succeeded, False otherwise
+        """
+        try:
+            window = self._get_window()
+            if not window:
+                log.warning("Worker: No window for slide navigation")
+                return False
+
+            current_index = window.View.Slide.SlideIndex
+            presentation = window.Presentation
+            total_slides = presentation.Slides.Count
+
+            new_index = current_index + direction
+
+            if new_index < 1:
+                log.info("Worker: Already at first slide")
+                self._announce("First slide")
+                return False
+            elif new_index > total_slides:
+                log.info("Worker: Already at last slide")
+                self._announce("Last slide")
+                return False
+
+            # Navigate to the new slide
+            window.View.GotoSlide(new_index)
+            log.info(f"Worker: Navigated to slide {new_index}")
+            return True
+
+        except Exception as e:
+            log.error(f"Worker: Error navigating slide - {e}")
+            return False
+
 
 # ============================================================================
 # AppModule - NVDA Integration
@@ -531,6 +621,7 @@ class AppModule(AppModule):
     NVDA Developer Guide and Joseph Lee's Office Desk addon.
 
     Uses COM events for instant slide change detection (v0.0.16).
+    v0.0.22: PageUp/PageDown navigation in Comments pane.
     """
 
     def __init__(self, *args, **kwargs):
@@ -556,6 +647,100 @@ class AppModule(AppModule):
             self._worker.request_initialize()
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
+
+    def _is_in_comments_pane(self):
+        """Check if focus is currently in the Comments pane.
+
+        v0.0.22: Used to determine if PageUp/PageDown should navigate slides.
+        """
+        try:
+            focus = api.getFocusObject()
+            if focus:
+                # Log focus object details for debugging
+                focus_name = getattr(focus, 'name', None) or "(no name)"
+                focus_role = getattr(focus, 'role', None)
+                focus_class = getattr(focus, 'windowClassName', None) or "(no class)"
+                log.info(f"_is_in_comments_pane: Focus name='{focus_name}', role={focus_role}, class='{focus_class}'")
+
+                # Check the role and name/class of the focused element
+                # Comments pane elements are typically in a NetUIHWNDElement
+                # with specific patterns in their names
+                obj = focus
+                depth = 0
+                # Walk up a few levels looking for Comments pane indicators
+                for _ in range(5):
+                    if obj is None:
+                        break
+                    try:
+                        name = obj.name or ""
+                        windowClassName = getattr(obj, 'windowClassName', "") or ""
+                        role = getattr(obj, 'role', None)
+
+                        log.info(f"_is_in_comments_pane: depth={depth}, name='{name}', class='{windowClassName}', role={role}")
+
+                        # Check for Comments pane indicators
+                        if "comment" in name.lower():
+                            log.info(f"_is_in_comments_pane: MATCH - found 'comment' in name at depth {depth}")
+                            return True
+                        if "NetUIHWNDElement" in windowClassName:
+                            # Could be in a task pane - check role
+                            log.info(f"_is_in_comments_pane: In NetUIHWNDElement at depth {depth}")
+                            # If we're in a pane and see comment-related content, assume Comments pane
+                            if focus.name and "comment" in focus.name.lower():
+                                log.info("_is_in_comments_pane: MATCH - focus name contains 'comment'")
+                                return True
+                            # Also check if parent chain has comment indicators
+                            if name and "comment" in name.lower():
+                                log.info("_is_in_comments_pane: MATCH - parent name contains 'comment'")
+                                return True
+                    except Exception as e:
+                        log.debug(f"_is_in_comments_pane: Error at depth {depth}: {e}")
+                    obj = getattr(obj, 'parent', None)
+                    depth += 1
+
+                log.info("_is_in_comments_pane: NO MATCH - not in comments pane")
+            else:
+                log.info("_is_in_comments_pane: No focus object")
+
+        except Exception as e:
+            log.error(f"_is_in_comments_pane: Error - {e}")
+        return False
+
+    @script(
+        gesture="kb:pageDown",
+        description="Navigate to next slide (in Comments pane)",
+        category="PowerPoint Comments"
+    )
+    def script_nextSlideFromComments(self, gesture):
+        """Navigate to next slide when in Comments pane.
+
+        v0.0.22: PageDown switches slides while in Comments pane.
+        Otherwise, passes the key through to PowerPoint.
+        """
+        if self._is_in_comments_pane() and self._worker:
+            log.info("PageDown in Comments pane - navigating to next slide")
+            self._worker.navigate_slide(1)
+        else:
+            # Pass through to PowerPoint
+            gesture.send()
+
+    @script(
+        gesture="kb:pageUp",
+        description="Navigate to previous slide (in Comments pane)",
+        category="PowerPoint Comments"
+    )
+    def script_previousSlideFromComments(self, gesture):
+        """Navigate to previous slide when in Comments pane.
+
+        v0.0.22: PageUp switches slides while in Comments pane.
+        Otherwise, passes the key through to PowerPoint.
+        """
+        if self._is_in_comments_pane() and self._worker:
+            log.info("PageUp in Comments pane - navigating to previous slide")
+            self._worker.navigate_slide(-1)
+        else:
+            # Pass through to PowerPoint
+            gesture.send()
 
     def terminate(self):
         """Clean up when PowerPoint closes or NVDA exits."""

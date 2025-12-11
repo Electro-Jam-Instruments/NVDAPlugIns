@@ -77,25 +77,27 @@
 
 ### 5. Slide Change Detection
 
-**Decision:** Use PowerPoint COM events (preferred) or polling (fallback)
+**Decision:** Use PowerPoint COM events via locally-defined EApplication interface
 **Date:** December 2025
-**Status:** Revised
+**Status:** VERIFIED WORKING v0.0.21
 
 **Options:**
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **COM Events** (`SlideSelectionChanged`) | Instant, no CPU waste | Requires event sink setup |
+| **COM Events** (`WindowSelectionChange`) | Instant, no CPU waste | Requires event sink setup |
 | **Polling** (300ms interval) | Simple implementation | CPU usage, slight latency |
 
-**Preferred:** COM events via `SlideSelectionChanged` or `WindowSelectionChange`
-**Fallback:** Polling if events fail to connect
+**Implementation:** COM events via `WindowSelectionChange` (DISPID 2001)
+- Define EApplication interface locally (do NOT use type library)
+- Use `_AdviseConnection()` to connect event sink
+- Events fire instantly on slide navigation
 
-**v0.0.15 Status:** Implemented polling; event-driven approach planned for v0.0.16+
+**v0.0.21 Status:** COM events working - WindowSelectionChange fires on every slide change
 
 **Research:**
+- `.agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md` - Complete implementation guide
 - `research/NVDA_PowerPoint_Native_Support_Analysis.md` - Documents `ppEApplicationSink`
-- `research/PowerPoint-Comment-Resolution-LockedFile-Access-Research.md` - Documents `SlideSelectionChanged`
 
 ---
 

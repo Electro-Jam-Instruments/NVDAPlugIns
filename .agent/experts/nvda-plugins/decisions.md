@@ -433,7 +433,7 @@ class AppModule(AppModule):
 
 **Decision:** Define the PowerPoint EApplication COM events interface locally, do NOT use type library loading
 **Date:** December 2025
-**Status:** VERIFIED through research (v0.0.16-v0.0.20 failures, then research)
+**Status:** VERIFIED WORKING v0.0.21 - COM events firing successfully
 
 **The Problem:**
 - v0.0.16-v0.0.20 tried to load PowerPoint type library to get event interfaces

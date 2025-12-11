@@ -173,15 +173,17 @@ NVDA-Plugins/
 ## Version
 
 - **Last Updated:** December 2025
-- **Current Version:** v0.0.20
-- **Status:** Phase 2 Slide Change Detection - Researching COM Events
+- **Current Version:** v0.0.21
+- **Status:** Phase 2 Slide Change Detection - COMPLETE
   - AppModule loads using NVDA doc pattern
   - COM connection working via comHelper
   - Dedicated background thread for COM operations (v0.0.14)
   - Thread-safe UI announcements via queueHandler
   - Clean shutdown with terminate() method
   - Presentation detection and view switching working
-  - **v0.0.16-v0.0.20:** Type library approach failed ("Library not registered")
-  - **Research Complete:** Correct approach documented - define EApplication locally
-  - **Next:** Implement using locally-defined EApplication interface pattern
-  - See `.agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md`
+  - **v0.0.21: COM Events Working** - Locally-defined EApplication interface
+  - WindowSelectionChange events firing on slide navigation
+  - "No comments" / "Has X comments" announced on each slide change
+  - Auto-reconnect working after alt-tab
+  - View auto-switch to Normal working
+  - **Next:** Phase 3 - Focus First Comment (UIA focus to Comments pane)
