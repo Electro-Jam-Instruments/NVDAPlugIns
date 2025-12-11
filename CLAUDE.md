@@ -102,4 +102,4 @@ ppt_app = GetActiveObject("PowerPoint.Application")  # FAILS
 
 ## Current Version
 
-As of December 2025: v0.0.13
+As of December 2025: v0.0.14 (Phase 1 Complete - Threading Architecture)

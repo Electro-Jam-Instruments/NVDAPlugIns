@@ -281,6 +281,94 @@ for i in range(1, comments.Count + 1):
     print(comment.Text)
 ```
 
+## Threading for COM Operations (Recommended Pattern)
+
+**NVDA maintainers recommend dedicated threads over `core.callLater()` for continuous or repeated work.**
+
+### Why Use Threading?
+- `core.callLater()` creates new deferred calls with no lifecycle management
+- No cleanup when app closes or NVDA exits
+- Continuous monitoring (like slide changes) needs a persistent thread
+
+### Threading Pattern for NVDA Addons
+
+```python
+import threading
+import queue
+from comtypes import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED
+from queueHandler import queueFunction, eventQueue
+
+class WorkerThread:
+    def __init__(self):
+        self._stop_event = threading.Event()
+        self._work_queue = queue.Queue()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(
+            target=self._run,
+            name="MyWorker",
+            daemon=False  # Non-daemon for clean shutdown
+        )
+        self._thread.start()
+
+    def stop(self, timeout=5):
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+
+    def queue_task(self, task_name, *args):
+        self._work_queue.put((task_name, args))
+
+    def _run(self):
+        # CRITICAL: Initialize COM in STA mode for Office apps
+        CoInitializeEx(COINIT_APARTMENTTHREADED)
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    task_name, args = self._work_queue.get(timeout=0.5)
+                    self._execute_task(task_name, args)
+                except queue.Empty:
+                    pass
+        finally:
+            CoUninitialize()  # Always cleanup COM
+
+    def _announce(self, message):
+        # CRITICAL: Thread-safe UI announcement
+        queueFunction(eventQueue, ui.message, message)
+```
+
+### Threading Rules
+
+| Rule | Reason |
+|------|--------|
+| `CoInitializeEx(COINIT_APARTMENTTHREADED)` | Office COM requires STA |
+| `CoUninitialize()` in finally block | Prevents COM leaks |
+| `threading.Event()` for stop signal | Clean shutdown |
+| `daemon=False` | Allows cleanup before exit |
+| `queueFunction(eventQueue, ...)` for UI | Thread-safe NVDA speech |
+| Join with timeout in `terminate()` | Prevents hang on exit |
+
+### AppModule Integration
+
+```python
+class AppModule(AppModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._worker = WorkerThread()
+        self._worker.start()
+
+    def event_appModule_gainFocus(self):
+        self._worker.queue_task("initialize")
+
+    def terminate(self):
+        if self._worker:
+            self._worker.stop(timeout=5)
+        super().terminate()
+```
+
+For full details, see `decisions.md` Decision #12.
+
 ## Testing During Development
 
 ### Scratchpad Testing (Fastest Iteration)

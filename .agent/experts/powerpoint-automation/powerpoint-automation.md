@@ -257,9 +257,130 @@ def safe_com_call(func, *args, fallback=None):
 count = safe_com_call(lambda: slide.Comments.Count, fallback=0)
 ```
 
+## COM Events (Event-Driven Approach)
+
+PowerPoint exposes application-level events via COM. This is superior to polling for detecting slide changes.
+
+### Available Events
+
+| Event | When Fired | Use For |
+|-------|------------|---------|
+| `SlideSelectionChanged` | Slide thumbnail selection changes | Detecting slide navigation |
+| `WindowSelectionChange` | Text, shape, or slide selection changes | Broader selection tracking |
+| `SlideShowBegin` | Slideshow starts | Disable monitoring |
+| `SlideShowEnd` | Slideshow ends | Re-enable monitoring |
+| `PresentationClose` | File closed | Cleanup |
+
+### EApplication Interface
+
+PowerPoint events use the `EApplication` interface (ProgID: `PowerPoint.Application`).
+
+**PowerPoint Type Library GUID:** `{91493440-5A91-11CF-8700-00AA0060263B}`
+
+```python
+from comtypes import COMObject
+from comtypes.client import GetEvents, GetModule
+import comHelper
+
+# Step 1: Load PowerPoint type library to get EApplication interface
+ppt_gen = GetModule(['{91493440-5A91-11CF-8700-00AA0060263B}', 1, 0])
+EApplication = ppt_gen.EApplication  # The events interface
+
+class PowerPointEventSink(COMObject):
+    """Receives PowerPoint application events."""
+
+    # MUST set this AFTER loading type library
+    _com_interfaces_ = [EApplication]
+
+    def SlideSelectionChanged(self, SldRange):
+        """Called when slide selection changes in thumbnail pane."""
+        # SldRange is a SlideRange object
+        if SldRange and SldRange.Count > 0:
+            slide_index = SldRange.Item(1).SlideIndex
+            # Handle slide change
+
+    def WindowSelectionChange(self, Sel):
+        """Called when selection changes in window."""
+        # Sel is a Selection object with Type property:
+        # 0=ppSelectionNone, 1=ppSelectionSlides, 2=ppSelectionShapes, 3=ppSelectionText
+        pass
+
+# Step 2: Connect to PowerPoint (use comHelper for NVDA!)
+ppt = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+
+# Step 3: Create sink and connect
+sink = PowerPointEventSink()
+connection = GetEvents(ppt, sink)
+
+# Step 4: CRITICAL - Pump Windows messages for events to fire
+# See "Message Pump Requirement" section below
+```
+
+### Message Pump Requirement
+
+**COM events are delivered via Windows messages.** Without a message pump, events will NOT fire.
+
+```python
+from ctypes import windll, byref
+from ctypes.wintypes import MSG
+
+def pump_messages(timeout_ms=500):
+    """Process Windows messages to receive COM events."""
+    user32 = windll.user32
+    QS_ALLINPUT = 0x04FF
+    PM_REMOVE = 0x0001
+
+    # Wait for messages with timeout
+    user32.MsgWaitForMultipleObjects(0, None, False, timeout_ms, QS_ALLINPUT)
+
+    # Process all pending messages
+    msg = MSG()
+    while user32.PeekMessageW(byref(msg), None, 0, 0, PM_REMOVE):
+        user32.TranslateMessage(byref(msg))
+        user32.DispatchMessageW(byref(msg))
+
+# In your main loop:
+while not stop_event.is_set():
+    pump_messages(timeout_ms=500)
+```
+
+### NVDA's Built-in Pattern
+
+NVDA's PowerPoint module uses `ppEApplicationSink` for event handling:
+
+```python
+# From nvdaBuiltin.appModules.powerpnt
+class ppEApplicationSink(COMObject):
+    _com_interfaces_ = [wireEApplication]
+
+    def wireWindowSelectionChange(self, pSel):
+        """Handle selection change in PowerPoint window."""
+        # NVDA processes selection and updates focus
+```
+
+### Threading Considerations
+
+COM events require:
+1. **STA Initialization**: `CoInitializeEx(COINIT_APARTMENTTHREADED)`
+2. **Message Pump**: Events are delivered via Windows messages
+3. **Same Thread**: Event sink must be created on COM thread
+
+For NVDA addons, the pattern is:
+- Create event sink on main thread (already STA)
+- Or use `wx.CallAfter()` / `core.callLater()` for thread safety
+
+### Event vs Polling Comparison
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Polling** | Simple, works everywhere | CPU usage, latency (poll interval) |
+| **Events** | Instant, no CPU waste | Requires COM event setup, message pump |
+
+**Recommendation:** Use events when possible; fall back to polling if events fail.
+
 ## Performance Notes
 
 1. **Cache COM references** - Don't re-fetch Application repeatedly
 2. **Batch reads** - Get all comments at once, not one at a time
-3. **Avoid polling** - Use events when possible
+3. **Use events over polling** - Instant response, no CPU waste
 4. **COM is synchronous** - Long operations block; consider threading

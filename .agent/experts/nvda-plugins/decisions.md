@@ -320,3 +320,109 @@ ppt_app = GetActiveObject("PowerPoint.Application")
 - Same approach NVDA's built-in PowerPoint module uses
 
 **Reference:** NVDA GitHub Issue #2483 - GetActiveObject fails when running with uiAccess
+
+---
+
+### 12. Use Dedicated Background Thread for COM Operations
+
+**Decision:** Move all COM operations to a dedicated background thread instead of using `core.callLater()`
+**Date:** December 2025
+**Status:** VERIFIED WORKING v0.0.14
+
+**The Problem:**
+- `core.callLater()` is not recommended by NVDA maintainers for continuous/repeated work
+- Each focus event creates a new deferred call with no lifecycle management
+- No cleanup when PowerPoint closes or NVDA exits
+- Phase 2 needs continuous slide monitoring - `callLater` won't scale
+
+**The Solution:**
+
+```python
+import threading
+import queue
+from comtypes import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED
+from queueHandler import queueFunction, eventQueue
+
+class PowerPointWorker:
+    """Background thread for COM operations."""
+
+    def __init__(self):
+        self._stop_event = threading.Event()
+        self._work_queue = queue.Queue()
+        self._thread = None
+        self._ppt_app = None
+
+    def start(self):
+        self._thread = threading.Thread(
+            target=self._run,
+            name="PowerPointCommentWorker",
+            daemon=False  # Non-daemon for clean shutdown
+        )
+        self._thread.start()
+
+    def stop(self, timeout=5):
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+
+    def queue_task(self, task_name, *args):
+        self._work_queue.put((task_name, args))
+
+    def _run(self):
+        # Initialize COM in STA mode (required for Office)
+        CoInitializeEx(COINIT_APARTMENTTHREADED)
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    task_name, args = self._work_queue.get(timeout=0.5)
+                    self._execute_task(task_name, args)
+                except queue.Empty:
+                    pass
+        finally:
+            self._ppt_app = None
+            CoUninitialize()
+
+    def _announce(self, message):
+        # Thread-safe UI announcement
+        queueFunction(eventQueue, ui.message, message)
+```
+
+**Threading Rules for NVDA Addons:**
+
+| Rule | Reason |
+|------|--------|
+| Use `CoInitializeEx(COINIT_APARTMENTTHREADED)` | Office COM requires STA |
+| Always `CoUninitialize()` in finally block | Prevents COM leaks |
+| Use `threading.Event()` for stop signal | Clean shutdown |
+| Non-daemon thread (`daemon=False`) | Allows cleanup before exit |
+| Use `queueFunction(eventQueue, ...)` for UI | Thread-safe NVDA speech |
+| Join with timeout in `terminate()` | Prevents hang on exit |
+
+**Why This Pattern:**
+1. COM initialized once per thread (proper STA)
+2. Work queue allows task dispatch from main thread
+3. Thread can run continuously for Phase 2 monitoring
+4. Clean shutdown via `terminate()` method
+5. Thread-safe announcements via `queueHandler`
+
+**AppModule Integration:**
+
+```python
+class AppModule(AppModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._worker = PowerPointWorker()
+        self._worker.start()
+
+    def event_appModule_gainFocus(self):
+        # Queue task instead of core.callLater
+        self._worker.queue_task("initialize")
+
+    def terminate(self):
+        # Clean shutdown
+        if self._worker:
+            self._worker.stop(timeout=5)
+        super().terminate()
+```
+
+**Key Insight:** NVDA maintainers recommend dedicated threads over `core.callLater()` for anything beyond simple one-shot operations. This pattern is reusable for future NVDA plugins.

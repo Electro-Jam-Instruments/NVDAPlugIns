@@ -131,10 +131,18 @@ NVDA-Plugins/
 ## Version
 
 - **Last Updated:** December 2025
-- **Current Version:** v0.0.13
-- **Status:** Phase 1 Foundation COMPLETE
+- **Current Version:** v0.0.16
+- **Status:** Phase 2 Slide Change Detection via COM Events
   - AppModule loads using NVDA doc pattern
   - COM connection working via comHelper
-  - Event handlers defer work with core.callLater
-  - Presentation detection working
-  - Ready for Phase 2 (Slide Change Detection)
+  - Dedicated background thread for COM operations (v0.0.14)
+  - Thread-safe UI announcements via queueHandler
+  - Clean shutdown with terminate() method
+  - Presentation detection and view switching working
+  - **Phase 2 (v0.0.16):** COM events for slide detection (replaces polling)
+  - **Phase 2 (v0.0.16):** SlideSelectionChanged + WindowSelectionChange events
+  - **Phase 2 (v0.0.16):** Windows message pump for event delivery
+  - **Phase 2 (v0.0.16):** Comprehensive error logging
+  - Comment counting on slide change
+  - Auto-open Comments pane when comments exist
+  - Ready for testing COM event-driven detection

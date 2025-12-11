@@ -75,18 +75,27 @@
 
 ---
 
-### 5. Slide Change Detection via Focus Events
+### 5. Slide Change Detection
 
-**Decision:** Track slide changes via NVDA focus events + COM polling
+**Decision:** Use PowerPoint COM events (preferred) or polling (fallback)
 **Date:** December 2025
-**Status:** Final
+**Status:** Revised
 
-**Rationale:**
-- NVDA's `event_gainFocus` fires on selection changes
-- Check `ActiveWindow.View.Slide.SlideIndex` for actual slide
-- Compare to cached index to detect changes
+**Options:**
 
-**Research:** `research/NVDA_PowerPoint_Native_Support_Analysis.md`
+| Approach | Pros | Cons |
+|----------|------|------|
+| **COM Events** (`SlideSelectionChanged`) | Instant, no CPU waste | Requires event sink setup |
+| **Polling** (300ms interval) | Simple implementation | CPU usage, slight latency |
+
+**Preferred:** COM events via `SlideSelectionChanged` or `WindowSelectionChange`
+**Fallback:** Polling if events fail to connect
+
+**v0.0.15 Status:** Implemented polling; event-driven approach planned for v0.0.16+
+
+**Research:**
+- `research/NVDA_PowerPoint_Native_Support_Analysis.md` - Documents `ppEApplicationSink`
+- `research/PowerPoint-Comment-Resolution-LockedFile-Access-Research.md` - Documents `SlideSelectionChanged`
 
 ---
 

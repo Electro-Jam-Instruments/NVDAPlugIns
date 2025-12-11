@@ -32,7 +32,7 @@ This document defines the release process for NVDA plugins in this repository. A
 
 | Plugin | Current Version | Status |
 |--------|-----------------|--------|
-| powerpoint-comments | 0.0.13 | Beta - Phase 1 Complete |
+| powerpoint-comments | 0.0.16 | Beta - Phase 2 (COM Events for Slide Detection) |
 
 ## Version Update Process
 
@@ -199,6 +199,9 @@ The build validates tag version against manifest.ini only, but buildVars.py shou
 
 | Date | Plugin | Version | Type | Notes |
 |------|--------|---------|------|-------|
+| 2025-12-10 | powerpoint-comments | 0.0.16 | beta | Phase 2 - COM events for slide detection (replaces polling), comprehensive logging |
+| 2025-12-10 | powerpoint-comments | 0.0.15 | beta | Phase 2 - Slide change detection via polling, comment counting, auto-open Comments pane |
+| 2025-12-10 | powerpoint-comments | 0.0.14 | beta | WORKING - Dedicated background thread for COM operations |
 | 2025-12-10 | powerpoint-comments | 0.0.13 | beta | WORKING - Fixed COM access with comHelper (UIAccess privilege) |
 | 2025-12-10 | powerpoint-comments | 0.0.12 | beta | Debug - Added INFO logging to track COM initialization |
 | 2025-12-10 | powerpoint-comments | 0.0.11 | beta | WORKING - Deferred COM work with core.callLater (fixes speech) |
@@ -209,12 +212,13 @@ The build validates tag version against manifest.ini only, but buildVars.py shou
 | 2025-12-10 | powerpoint-comments | 0.0.6 | beta | Working build, wrong inheritance (base class) |
 | 2025-12-10 | powerpoint-comments | 0.0.1-0.0.5 | beta | Initial development iterations |
 
-### Key Learnings (v0.0.9-v0.0.13)
+### Key Learnings (v0.0.9-v0.0.14)
 
 1. **AppModule Pattern:** Only `import *` then `class AppModule(AppModule):` works
 2. **Event Handlers:** `event_appModule_gainFocus` is optional hook - NO super() call
-3. **Blocking Events:** Heavy work in event handlers blocks NVDA speech - defer with `core.callLater()`
+3. **Blocking Events:** Heavy work in event handlers blocks NVDA speech - defer work
 4. **COM Access:** Must use `comHelper.getActiveObject()` not direct `GetActiveObject()` due to UIAccess privileges
+5. **Threading:** Use dedicated background thread for COM operations (not `core.callLater()` for continuous work)
 
 ---
 
