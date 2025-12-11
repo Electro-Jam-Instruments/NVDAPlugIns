@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.40"
+ADDON_VERSION = "0.0.41"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -196,6 +196,7 @@ class PowerPointWorker:
     v0.0.38: Add diagnostic logging to understand why event_gainFocus not firing for comments.
     v0.0.39: Log description property to find where comment text lives.
     v0.0.40: Debug logging to trace author/comment_text extraction.
+    v0.0.41: Additional parse debug logging to find why author extraction fails.
     """
 
     # View type constants
@@ -775,16 +776,22 @@ class AppModule(AppModule):
 
                 log.info(f"COMMENT_PROPS: desc='{description[:50]}', value='{value[:50]}', child='{first_child_name[:50]}'")
 
+                # v0.0.41: Log raw name for parsing debug
+                log.info(f"PARSE_DEBUG: raw_name='{name}', contains_started_by={' started by ' in name}")
+
                 # Extract author and resolved state from name
                 is_resolved = name.startswith("Resolved ")
                 author = ""
 
                 if " started by " in name:
                     author_part = name.split(" started by ", 1)[1]
+                    log.info(f"PARSE_DEBUG: author_part='{author_part}', contains_with={', with ' in author_part}")
                     if ", with " in author_part:
                         author = author_part.split(", with ")[0]
                     else:
                         author = author_part
+                else:
+                    log.info(f"PARSE_DEBUG: ' started by ' NOT found in name")
 
                 # Use description as comment text
                 comment_text = description
