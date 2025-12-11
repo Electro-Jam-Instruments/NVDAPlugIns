@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.25"
+ADDON_VERSION = "0.0.26"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -179,7 +179,8 @@ class PowerPointWorker:
     v0.0.22: Use sel.Parent to get correct window when multiple presentations open.
     v0.0.23: Fix COM threading - queue navigation requests to worker thread.
     v0.0.24: Track Comments pane state to avoid redundant open/toggle calls.
-    v0.0.25: Check actual pane visibility via GetMso before calling ExecuteMso.
+    v0.0.25: Check actual pane visibility via GetPressedMso before calling ExecuteMso.
+    v0.0.26: Remove session flag, rely only on GetPressedMso. Send F6 to focus Comments pane.
     """
 
     # View type constants
@@ -203,8 +204,6 @@ class PowerPointWorker:
         self._current_window = None
         # v0.0.23: Queue for navigation requests from main thread
         self._nav_request = None  # Will be direction: 1 for next, -1 for previous
-        # v0.0.24: Track Comments pane state to avoid redundant toggles
-        self._comments_pane_opened = False
 
     def start(self):
         """Start the background thread."""
@@ -341,9 +340,6 @@ class PowerPointWorker:
                 dynamic=True
             )
             log.info("Worker: Connected to PowerPoint COM")
-
-            # v0.0.24: Reset pane state on reinit - different presentation may not have pane open
-            self._comments_pane_opened = False
 
             if self._has_active_presentation():
                 log.info("Worker: Active presentation found")
@@ -611,38 +607,52 @@ class PowerPointWorker:
         return False
 
     def _open_comments_pane(self):
-        """Open the Comments task pane if not already visible.
+        """Open the Comments task pane if not already visible, then focus it.
 
-        v0.0.24: Track state to avoid calling ExecuteMso repeatedly.
-        v0.0.25: Actually check if pane is visible before toggling.
+        v0.0.25: Check actual pane visibility via GetPressedMso before toggling.
+        v0.0.26: Removed session flag - rely only on GetPressedMso for accurate state.
+                 Request F6 keypress to move focus to Comments pane.
         ExecuteMso toggles the pane, so calling it when already open would close it.
         """
-        # v0.0.25: Check actual pane visibility, not just session flag
+        # v0.0.25: Check actual pane visibility
         if self._is_comments_pane_visible():
-            log.info("Worker: Comments pane already visible - skipping ExecuteMso")
-            self._comments_pane_opened = True
+            log.info("Worker: Comments pane already visible - requesting focus")
+            self._request_focus_comments_pane()
             return True
 
-        # v0.0.24: Skip if we already opened the pane this session
-        if self._comments_pane_opened:
-            log.debug("Worker: Comments pane already opened this session - skipping ExecuteMso")
-            return True
-
+        # Pane is not visible - open it
         try:
-            # Try multiple command names (varies by Office version)
-            for cmd in ["CommentsPane", "ReviewShowComments", "ShowComments"]:
-                try:
-                    self._ppt_app.CommandBars.ExecuteMso(cmd)
-                    log.info(f"Worker: Opened Comments pane via {cmd}")
-                    self._comments_pane_opened = True
-                    return True
-                except Exception as e:
-                    log.debug(f"Worker: Command {cmd} failed - {e}")
-                    continue
-            log.warning("Worker: Could not open Comments pane - all commands failed")
+            # CommentsPane is the correct idMso (confirmed working in v0.0.25)
+            self._ppt_app.CommandBars.ExecuteMso("CommentsPane")
+            log.info("Worker: Opened Comments pane via CommentsPane")
+            # Request focus to move to the pane
+            self._request_focus_comments_pane()
+            return True
         except Exception as e:
             log.error(f"Worker: Error opening Comments pane - {e}")
         return False
+
+    def _request_focus_comments_pane(self):
+        """Send F6 to focus the Comments pane.
+
+        v0.0.26: F6 is the PowerPoint keyboard shortcut to cycle through panes,
+        which will move focus to the Comments pane when it's open.
+        Uses queueFunction to send keypress from main thread.
+        """
+        log.info("Worker: Queuing F6 to focus Comments pane")
+
+        def send_f6():
+            """Send F6 keypress on main thread."""
+            try:
+                import winUser
+                VK_F6 = 0x75
+                winUser.keybd_event(VK_F6, 0, 0, 0)  # keydown
+                winUser.keybd_event(VK_F6, 0, 2, 0)  # keyup (KEYEVENTF_KEYUP = 2)
+                log.info("Worker: Sent F6 to focus Comments pane")
+            except Exception as e:
+                log.error(f"Worker: Failed to send F6 - {e}")
+
+        queueFunction(eventQueue, send_f6)
 
     def _navigate_slide(self, direction):
         """Navigate to next or previous slide (runs on worker thread).
