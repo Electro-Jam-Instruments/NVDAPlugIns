@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.29"
+ADDON_VERSION = "0.0.30"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -184,6 +184,7 @@ class PowerPointWorker:
     v0.0.27: Add UIA diagnostic logging to find stable identifiers for Comments pane focus.
     v0.0.28: Replace F6 with parent chain walk to verify focus in Comments pane.
     v0.0.29: Add UIAutomationId diagnostic logging to find stable pane identifier.
+    v0.0.30: Log UIAutomationId on every focus change via event_gainFocus.
     """
 
     # View type constants
@@ -770,6 +771,30 @@ class AppModule(AppModule):
             self._worker.request_initialize()
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
+
+    def event_gainFocus(self, obj, nextHandler):
+        """Called when any object in PowerPoint gains focus.
+
+        v0.0.30: Log focus changes with UIAutomationId to find stable identifiers.
+        """
+        # Log the focused object details
+        name = getattr(obj, 'name', '') or '(no name)'
+        window_class = getattr(obj, 'windowClassName', '') or '(no class)'
+        role = getattr(obj, 'role', None)
+        role_text = str(role) if role else '(no role)'
+
+        # Get UIAutomationId if available
+        uia_id = '(no id)'
+        try:
+            if hasattr(obj, 'UIAAutomationId'):
+                uia_id = obj.UIAAutomationId or '(no id)'
+        except Exception:
+            pass
+
+        log.info(f"FOCUS_CHANGE: id='{uia_id}' class='{window_class}' role={role_text} name='{name[:60]}'")
+
+        # Let NVDA continue processing
+        nextHandler()
 
     def _is_in_comments_pane(self):
         """Check if focus is currently in the Comments pane.
