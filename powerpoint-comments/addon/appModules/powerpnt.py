@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.24"
+ADDON_VERSION = "0.0.25"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -179,6 +179,7 @@ class PowerPointWorker:
     v0.0.22: Use sel.Parent to get correct window when multiple presentations open.
     v0.0.23: Fix COM threading - queue navigation requests to worker thread.
     v0.0.24: Track Comments pane state to avoid redundant open/toggle calls.
+    v0.0.25: Check actual pane visibility via GetMso before calling ExecuteMso.
     """
 
     # View type constants
@@ -584,15 +585,47 @@ class PowerPointWorker:
             # Open Comments pane for slides with comments
             self._open_comments_pane()
 
+    def _is_comments_pane_visible(self):
+        """Check if Comments pane is currently visible.
+
+        v0.0.25: Uses GetMso to check actual command state.
+        GetMso returns msoButtonDown (True/-1) if pane is open.
+
+        Returns:
+            True if Comments pane is visible, False otherwise
+        """
+        try:
+            # Check the state of the CommentsPane toggle button
+            # GetMso returns the pressed state: True/-1 if pressed (pane open)
+            for cmd in ["CommentsPane", "ReviewShowComments", "ShowComments"]:
+                try:
+                    state = self._ppt_app.CommandBars.GetPressedMso(cmd)
+                    log.info(f"Worker: GetPressedMso('{cmd}') = {state}")
+                    if state:  # True or -1 means pressed/active
+                        return True
+                except Exception as e:
+                    log.debug(f"Worker: GetPressedMso('{cmd}') failed - {e}")
+                    continue
+        except Exception as e:
+            log.debug(f"Worker: Error checking pane visibility - {e}")
+        return False
+
     def _open_comments_pane(self):
-        """Open the Comments task pane if not already opened this session.
+        """Open the Comments task pane if not already visible.
 
         v0.0.24: Track state to avoid calling ExecuteMso repeatedly.
+        v0.0.25: Actually check if pane is visible before toggling.
         ExecuteMso toggles the pane, so calling it when already open would close it.
         """
+        # v0.0.25: Check actual pane visibility, not just session flag
+        if self._is_comments_pane_visible():
+            log.info("Worker: Comments pane already visible - skipping ExecuteMso")
+            self._comments_pane_opened = True
+            return True
+
         # v0.0.24: Skip if we already opened the pane this session
         if self._comments_pane_opened:
-            log.debug("Worker: Comments pane already opened - skipping ExecuteMso")
+            log.debug("Worker: Comments pane already opened this session - skipping ExecuteMso")
             return True
 
         try:
