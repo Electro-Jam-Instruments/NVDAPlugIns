@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.49"
+ADDON_VERSION = "0.0.50"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -205,6 +205,7 @@ class PowerPointWorker:
     v0.0.47: Announce slide number and title on PageUp/PageDown navigation.
     v0.0.48: Skip cancelSpeech after slide navigation to avoid cutting off title.
     v0.0.49: Add slide notes detection and Ctrl+Alt+N shortcut to read notes.
+    v0.0.50: Fix double slide title announcement; strip **** and tag markers from notes.
     """
 
     # View type constants
@@ -229,6 +230,7 @@ class PowerPointWorker:
         # v0.0.23: Queue for navigation requests from main thread
         self._nav_request = None  # Will be direction: 1 for next, -1 for previous
         self._read_notes_request = False  # v0.0.49: Request to read slide notes
+        self._from_comments_navigation = False  # v0.0.50: Track if nav from Comments pane
 
     def start(self):
         """Start the background thread."""
@@ -263,17 +265,20 @@ class PowerPointWorker:
         log.info("Worker: Initialize requested")
         self._initialized = False  # Force re-initialization
 
-    def request_navigate(self, direction):
+    def request_navigate(self, direction, from_comments_pane=False):
         """Request slide navigation from main thread.
 
         v0.0.23: This queues the request for the worker thread to process.
         COM objects can only be used on the thread that created them.
+        v0.0.50: Added from_comments_pane flag to control slide title announcement.
 
         Args:
             direction: 1 for next slide, -1 for previous slide
+            from_comments_pane: True if navigation triggered from Comments pane
         """
-        log.info(f"Worker: Navigation requested (direction={direction})")
+        log.info(f"Worker: Navigation requested (direction={direction}, from_comments={from_comments_pane})")
         self._nav_request = direction
+        self._from_comments_navigation = from_comments_pane
 
     def request_read_notes(self):
         """Request to read slide notes from main thread.
@@ -628,16 +633,36 @@ class PowerPointWorker:
         notes = self._get_slide_notes()
         return bool(notes)
 
+    def _clean_notes_text(self, notes):
+        """Clean notes text by removing marker tags.
+
+        v0.0.50: Strips **** markers and <meeting notes> tags from notes.
+        """
+        import re
+        if not notes:
+            return notes
+        # Remove **** markers (with optional whitespace)
+        cleaned = re.sub(r'\*{4,}\s*', '', notes)
+        # Remove <meeting notes> and </meeting notes> tags (case insensitive)
+        cleaned = re.sub(r'</?meeting\s*notes>', '', cleaned, flags=re.IGNORECASE)
+        # Remove <critical notes> and </critical notes> tags (case insensitive)
+        cleaned = re.sub(r'</?critical\s*notes>', '', cleaned, flags=re.IGNORECASE)
+        # Clean up extra whitespace
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        return cleaned
+
     def _announce_slide_notes(self):
         """Announce the notes text for current slide.
 
         v0.0.49: Called via Ctrl+Alt+N keyboard shortcut.
+        v0.0.50: Strips marker tags before announcing.
         Reads full notes text, or announces "No notes" if empty.
         """
         notes = self._get_slide_notes()
         if notes:
-            self._announce(f"Notes: {notes}")
-            log.info(f"Worker: Announced notes ({len(notes)} chars)")
+            cleaned = self._clean_notes_text(notes)
+            self._announce(f"Notes: {cleaned}")
+            log.info(f"Worker: Announced notes ({len(cleaned)} chars)")
         else:
             self._announce("No notes on this slide")
             log.info("Worker: No notes on slide")
@@ -677,19 +702,24 @@ class PowerPointWorker:
 
         v0.0.47: Announces slide number and title first, then comment count.
         v0.0.49: Also announces "has notes" if slide has notes.
+        v0.0.50: Only announce slide title if navigated from Comments pane (avoid double).
         Format: "{slide_number}: {title}" then "Has X comments" or "No comments", then "has notes"
         """
-        # v0.0.47: Announce slide number and title
-        slide_index = self._get_current_slide_index()
-        slide_title = self._get_slide_title()
+        # v0.0.50: Only announce slide title if navigated from Comments pane
+        # NVDA's built-in PowerPoint module already announces slide on normal navigation
+        if self._from_comments_navigation:
+            slide_index = self._get_current_slide_index()
+            slide_title = self._get_slide_title()
 
-        if slide_index > 0:
-            if slide_title:
-                slide_msg = f"{slide_index}: {slide_title}"
-            else:
-                slide_msg = f"Slide {slide_index}"
-            self._announce(slide_msg)
-            log.info(f"Worker: {slide_msg}")
+            if slide_index > 0:
+                if slide_title:
+                    slide_msg = f"{slide_index}: {slide_title}"
+                else:
+                    slide_msg = f"Slide {slide_index}"
+                self._announce(slide_msg)
+                log.info(f"Worker: {slide_msg}")
+            # Reset flag after use
+            self._from_comments_navigation = False
 
         # Announce comment count
         comments = self._get_comments_on_current_slide()
@@ -1039,7 +1069,7 @@ class AppModule(AppModule):
             # v0.0.46: Set pending flag so auto-tab triggers when focus returns
             self._pending_auto_focus = True
             self._in_comments_pane = False
-            self._worker.request_navigate(1)
+            self._worker.request_navigate(1, from_comments_pane=True)
         else:
             # Pass through to PowerPoint
             gesture.send()
@@ -1062,7 +1092,7 @@ class AppModule(AppModule):
             # v0.0.46: Set pending flag so auto-tab triggers when focus returns
             self._pending_auto_focus = True
             self._in_comments_pane = False
-            self._worker.request_navigate(-1)
+            self._worker.request_navigate(-1, from_comments_pane=True)
         else:
             # Pass through to PowerPoint
             gesture.send()
