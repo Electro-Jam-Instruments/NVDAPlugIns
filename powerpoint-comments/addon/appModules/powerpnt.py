@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.30"
+ADDON_VERSION = "0.0.31"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -185,6 +185,7 @@ class PowerPointWorker:
     v0.0.28: Replace F6 with parent chain walk to verify focus in Comments pane.
     v0.0.29: Add UIAutomationId diagnostic logging to find stable pane identifier.
     v0.0.30: Log UIAutomationId on every focus change via event_gainFocus.
+    v0.0.31: Clean up diagnostic logging, use UIAutomationId for _is_in_comments_pane.
     """
 
     # View type constants
@@ -637,55 +638,13 @@ class PowerPointWorker:
         return False
 
     def _request_focus_comments_pane(self):
-        """Log parent chain with UIAutomationId to find stable identifiers.
+        """Request focus to Comments pane (placeholder for future implementation).
 
-        v0.0.29: Diagnostic version - logs UIAutomationId for each element
-        in the parent chain so we can find a stable identifier for the
-        Comments pane that doesn't rely on localized text.
+        v0.0.31: Diagnostic logging removed. Currently relies on PowerPoint's
+        default behavior of focusing NewCommentButton when pane opens.
+        Future: Could use UIA to find and focus first comment directly.
         """
-        log.info("Worker: Queuing Comments pane diagnostic logging")
-
-        def do_focus():
-            """Log parent chain with UIAutomationId (runs on main thread)."""
-            try:
-                focus = api.getFocusObject()
-                if not focus:
-                    log.warning("No focus object")
-                    return
-
-                log.info("=== PARENT CHAIN DIAGNOSTIC ===")
-
-                # Walk UP the parent chain and log everything
-                obj = focus
-                depth = 0
-                max_depth = 10
-
-                while obj and depth < max_depth:
-                    name = getattr(obj, 'name', '') or '(no name)'
-                    window_class = getattr(obj, 'windowClassName', '') or '(no class)'
-                    role = getattr(obj, 'role', None)
-                    role_text = str(role) if role else '(no role)'
-
-                    # Try to get UIAutomationId
-                    uia_id = '(no id)'
-                    try:
-                        if hasattr(obj, 'UIAAutomationId'):
-                            uia_id = obj.UIAAutomationId or '(no id)'
-                    except Exception:
-                        pass
-
-                    prefix = "FOCUS" if depth == 0 else f"PARENT[{depth}]"
-                    log.info(f"{prefix}: id='{uia_id}' class='{window_class}' role={role_text} name='{name[:60]}'")
-
-                    obj = getattr(obj, 'parent', None)
-                    depth += 1
-
-                log.info("=== END PARENT CHAIN ===")
-
-            except Exception as e:
-                log.error(f"Diagnostic logging failed: {e}")
-
-        queueFunction(eventQueue, do_focus)
+        log.debug("Worker: Comments pane focus requested")
 
     def _navigate_slide(self, direction):
         """Navigate to next or previous slide (runs on worker thread).
@@ -775,80 +734,45 @@ class AppModule(AppModule):
     def event_gainFocus(self, obj, nextHandler):
         """Called when any object in PowerPoint gains focus.
 
-        v0.0.30: Log focus changes with UIAutomationId to find stable identifiers.
+        v0.0.31: Diagnostic logging removed - kept for future use if needed.
         """
-        # Log the focused object details
-        name = getattr(obj, 'name', '') or '(no name)'
-        window_class = getattr(obj, 'windowClassName', '') or '(no class)'
-        role = getattr(obj, 'role', None)
-        role_text = str(role) if role else '(no role)'
-
-        # Get UIAutomationId if available
-        uia_id = '(no id)'
-        try:
-            if hasattr(obj, 'UIAAutomationId'):
-                uia_id = obj.UIAAutomationId or '(no id)'
-        except Exception:
-            pass
-
-        log.info(f"FOCUS_CHANGE: id='{uia_id}' class='{window_class}' role={role_text} name='{name[:60]}'")
-
         # Let NVDA continue processing
         nextHandler()
 
     def _is_in_comments_pane(self):
         """Check if focus is currently in the Comments pane.
 
-        v0.0.22: Used to determine if PageUp/PageDown should navigate slides.
+        v0.0.31: Uses UIAutomationId for reliable detection without localized text.
+        Stable identifiers found in v0.0.30 testing:
+        - NewCommentButton (exact)
+        - CommentsList (exact)
+        - cardRoot_ prefix (comment threads)
+        - firstPaneElement prefix (pane container)
         """
         try:
             focus = api.getFocusObject()
-            if focus:
-                # Log focus object details for debugging
-                focus_name = getattr(focus, 'name', None) or "(no name)"
-                focus_role = getattr(focus, 'role', None)
-                focus_class = getattr(focus, 'windowClassName', None) or "(no class)"
-                log.info(f"_is_in_comments_pane: Focus name='{focus_name}', role={focus_role}, class='{focus_class}'")
+            if not focus:
+                return False
 
-                # Check the role and name/class of the focused element
-                # Comments pane elements are typically in a NetUIHWNDElement
-                # with specific patterns in their names
-                obj = focus
-                depth = 0
-                # Walk up a few levels looking for Comments pane indicators
-                for _ in range(5):
-                    if obj is None:
-                        break
-                    try:
-                        name = obj.name or ""
-                        windowClassName = getattr(obj, 'windowClassName', "") or ""
-                        role = getattr(obj, 'role', None)
+            # Check focused element and walk up parent chain
+            obj = focus
+            for _ in range(15):
+                if obj is None:
+                    break
+                try:
+                    # Get UIAutomationId - this is the stable identifier
+                    uia_id = getattr(obj, 'UIAAutomationId', '') or ''
 
-                        log.info(f"_is_in_comments_pane: depth={depth}, name='{name}', class='{windowClassName}', role={role}")
-
-                        # Check for Comments pane indicators
-                        if "comment" in name.lower():
-                            log.info(f"_is_in_comments_pane: MATCH - found 'comment' in name at depth {depth}")
-                            return True
-                        if "NetUIHWNDElement" in windowClassName:
-                            # Could be in a task pane - check role
-                            log.info(f"_is_in_comments_pane: In NetUIHWNDElement at depth {depth}")
-                            # If we're in a pane and see comment-related content, assume Comments pane
-                            if focus.name and "comment" in focus.name.lower():
-                                log.info("_is_in_comments_pane: MATCH - focus name contains 'comment'")
-                                return True
-                            # Also check if parent chain has comment indicators
-                            if name and "comment" in name.lower():
-                                log.info("_is_in_comments_pane: MATCH - parent name contains 'comment'")
-                                return True
-                    except Exception as e:
-                        log.debug(f"_is_in_comments_pane: Error at depth {depth}: {e}")
-                    obj = getattr(obj, 'parent', None)
-                    depth += 1
-
-                log.info("_is_in_comments_pane: NO MATCH - not in comments pane")
-            else:
-                log.info("_is_in_comments_pane: No focus object")
+                    # Check for any Comments pane identifier
+                    if (uia_id == 'NewCommentButton' or
+                        uia_id == 'CommentsList' or
+                        uia_id.startswith('cardRoot_') or
+                        uia_id.startswith('firstPaneElement')):
+                        log.debug(f"_is_in_comments_pane: MATCH - UIAutomationId='{uia_id}'")
+                        return True
+                except Exception:
+                    pass
+                obj = getattr(obj, 'parent', None)
 
         except Exception as e:
             log.error(f"_is_in_comments_pane: Error - {e}")
