@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.11"
+ADDON_VERSION = "0.0.12"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -68,12 +68,16 @@ class AppModule(AppModule):
 
         Called via core.callLater to prevent blocking NVDA's focus handling.
         """
+        log.info("PowerPoint Comments: Deferred initialization starting")
         try:
             if self._connect_to_powerpoint():
                 if self._has_active_presentation():
+                    log.info("PowerPoint Comments: Active presentation found")
                     self._ensure_normal_view()
                 else:
-                    log.debug("No active presentation - skipping view management")
+                    log.info("PowerPoint Comments: No active presentation")
+            else:
+                log.info("PowerPoint Comments: COM connection failed")
         except Exception as e:
             log.error(f"Deferred initialization failed: {e}")
 
@@ -86,11 +90,11 @@ class AppModule(AppModule):
         except OSError as e:
             # WinError -2147221021: Operation unavailable
             # This happens when PowerPoint is starting up or COM isn't ready
-            log.debug(f"PowerPoint COM not ready: {e}")
+            log.info(f"PowerPoint Comments: COM not ready - {e}")
             self._ppt_app = None
             return False
         except Exception as e:
-            log.error(f"Failed to connect to PowerPoint: {e}")
+            log.error(f"PowerPoint Comments: COM failed - {e}")
             self._ppt_app = None
             return False
 
