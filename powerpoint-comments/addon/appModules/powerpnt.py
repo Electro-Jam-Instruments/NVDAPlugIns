@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.28"
+ADDON_VERSION = "0.0.29"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -183,6 +183,7 @@ class PowerPointWorker:
     v0.0.26: Remove session flag, rely only on GetPressedMso. Send F6 to focus Comments pane.
     v0.0.27: Add UIA diagnostic logging to find stable identifiers for Comments pane focus.
     v0.0.28: Replace F6 with parent chain walk to verify focus in Comments pane.
+    v0.0.29: Add UIAutomationId diagnostic logging to find stable pane identifier.
     """
 
     # View type constants
@@ -635,51 +636,53 @@ class PowerPointWorker:
         return False
 
     def _request_focus_comments_pane(self):
-        """Verify focus is in Comments pane by walking up parent chain.
+        """Log parent chain with UIAutomationId to find stable identifiers.
 
-        v0.0.28: After ExecuteMso opens the Comments pane, focus lands on the
-        "New" button inside the pane. We walk UP the parent chain to verify
-        we're in the Comments pane (identified by windowClassName='NetUIHWNDElement'
-        and name containing 'comment').
-
-        This is efficient because:
-        - Walking UP uses cached parent references NVDA already maintains
-        - No child tree search needed (expensive)
-        - No TreeWalker (very expensive)
-        - Stops as soon as we find the pane
+        v0.0.29: Diagnostic version - logs UIAutomationId for each element
+        in the parent chain so we can find a stable identifier for the
+        Comments pane that doesn't rely on localized text.
         """
-        log.info("Worker: Queuing Comments pane focus verification")
+        log.info("Worker: Queuing Comments pane diagnostic logging")
 
         def do_focus():
-            """Walk parent chain to verify focus is in Comments pane (runs on main thread)."""
+            """Log parent chain with UIAutomationId (runs on main thread)."""
             try:
                 focus = api.getFocusObject()
                 if not focus:
-                    log.warning("No focus object - cannot verify Comments pane")
+                    log.warning("No focus object")
                     return
 
-                # Walk UP the parent chain to find Comments pane
+                log.info("=== PARENT CHAIN DIAGNOSTIC ===")
+
+                # Walk UP the parent chain and log everything
                 obj = focus
                 depth = 0
                 max_depth = 10
 
                 while obj and depth < max_depth:
-                    name = (getattr(obj, 'name', '') or '').lower()
-                    window_class = getattr(obj, 'windowClassName', '') or ''
+                    name = getattr(obj, 'name', '') or '(no name)'
+                    window_class = getattr(obj, 'windowClassName', '') or '(no class)'
+                    role = getattr(obj, 'role', None)
+                    role_text = str(role) if role else '(no role)'
 
-                    if 'comment' in name and window_class == 'NetUIHWNDElement':
-                        # Found the Comments pane - focus is already inside it
-                        log.info(f"Comments pane found at depth {depth}: '{obj.name}'")
-                        return
+                    # Try to get UIAutomationId
+                    uia_id = '(no id)'
+                    try:
+                        if hasattr(obj, 'UIAAutomationId'):
+                            uia_id = obj.UIAAutomationId or '(no id)'
+                    except Exception:
+                        pass
+
+                    prefix = "FOCUS" if depth == 0 else f"PARENT[{depth}]"
+                    log.info(f"{prefix}: id='{uia_id}' class='{window_class}' role={role_text} name='{name[:60]}'")
 
                     obj = getattr(obj, 'parent', None)
                     depth += 1
 
-                # Pane not found in parent chain
-                log.warning("Comments pane not found in parent chain - focus may not have landed there yet")
+                log.info("=== END PARENT CHAIN ===")
 
             except Exception as e:
-                log.error(f"Comments pane focus verification failed: {e}")
+                log.error(f"Diagnostic logging failed: {e}")
 
         queueFunction(eventQueue, do_focus)
 
