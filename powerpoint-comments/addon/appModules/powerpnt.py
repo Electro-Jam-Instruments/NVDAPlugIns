@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.18"
+ADDON_VERSION = "0.0.19"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -20,6 +20,16 @@ log.info(f"PowerPoint Comments addon: Module loading (v{ADDON_VERSION})")
 # This is the NVDA-documented pattern for extending built-in appModules
 from nvdaBuiltin.appModules.powerpnt import *
 log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
+
+# Check what event interfaces are available from the built-in module
+# NVDA uses wireEApplication for COM events
+try:
+    # wireEApplication should be available from the import *
+    log.info(f"wireEApplication available: {'wireEApplication' in dir()}")
+    if 'wireEApplication' in dir():
+        log.info(f"wireEApplication type: {type(wireEApplication)}")
+except Exception as e:
+    log.warning(f"Could not check wireEApplication: {e}")
 
 # Additional imports for our functionality
 import comHelper  # NVDA's COM helper - handles UIAccess privilege issues
@@ -40,98 +50,29 @@ _ppt_events_interface = None
 
 
 def _get_ppt_events_interface(ppt_app):
-    """Get the EApplication events interface from PowerPoint type library.
+    """Get the EApplication events interface for PowerPoint COM events.
 
     Returns the interface class or None if not available.
-    Logs detailed error information on failure.
 
-    v0.0.18: Try multiple approaches to load type library.
+    v0.0.19: Use wireEApplication from NVDA's built-in powerpnt module.
+    This is already loaded by NVDA - no need to load type library ourselves.
     """
     global _ppt_events_interface
 
     if _ppt_events_interface is not None:
         return _ppt_events_interface
 
+    # Try to use wireEApplication from NVDA's built-in module
+    # This was imported via "from nvdaBuiltin.appModules.powerpnt import *"
     try:
-        import comtypes.client
-
-        log.info("Attempting to get PowerPoint events interface from type library...")
-
-        # Approach 1: Use GetModule with the running application object
-        # This extracts type info directly from the running PowerPoint instance
-        try:
-            log.info("Trying GetModule with ppt_app object...")
-            ppt_gen = comtypes.client.GetModule(ppt_app)
-            log.info(f"PowerPoint type library loaded from app: {ppt_gen}")
-
-            # Look for EApplication interface (the events interface)
-            if hasattr(ppt_gen, 'EApplication'):
-                _ppt_events_interface = ppt_gen.EApplication
-                log.info(f"Found EApplication interface: {_ppt_events_interface}")
-                return _ppt_events_interface
-            else:
-                log.warning("EApplication interface not found via app object")
-                # List available interfaces for debugging
-                interfaces = [name for name in dir(ppt_gen) if not name.startswith('_')]
-                log.info(f"Available interfaces (first 30): {interfaces[:30]}")
-
-        except Exception as e:
-            log.warning(f"GetModule with app object failed: {e}")
-
-        # Approach 2: Try GUID-based loading (may work on some systems)
-        try:
-            log.info("Trying GetModule with GUID...")
-            ppt_gen = comtypes.client.GetModule(['{91493440-5A91-11CF-8700-00AA0060263B}', 1, 0])
-            log.info(f"PowerPoint type library loaded from GUID: {ppt_gen}")
-
-            if hasattr(ppt_gen, 'EApplication'):
-                _ppt_events_interface = ppt_gen.EApplication
-                log.info(f"Found EApplication interface: {_ppt_events_interface}")
-                return _ppt_events_interface
-
-        except Exception as e:
-            log.warning(f"GetModule with GUID failed: {e}")
-
-        # Approach 3: Try to find the type library by path
-        try:
-            import winreg
-            log.info("Trying to find PowerPoint type library in registry...")
-
-            # Look for PowerPoint type library in registry
-            key_path = r"SOFTWARE\Classes\TypeLib\{91493440-5A91-11CF-8700-00AA0060263B}\1.0\0\win32"
-            try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-                    tlb_path, _ = winreg.QueryValueEx(key, "")
-                    log.info(f"Found type library at: {tlb_path}")
-                    ppt_gen = comtypes.client.GetModule(tlb_path)
-                    if hasattr(ppt_gen, 'EApplication'):
-                        _ppt_events_interface = ppt_gen.EApplication
-                        log.info(f"Found EApplication interface: {_ppt_events_interface}")
-                        return _ppt_events_interface
-            except FileNotFoundError:
-                log.warning("Type library not found in HKLM registry")
-
-            # Try HKEY_CLASSES_ROOT
-            key_path = r"TypeLib\{91493440-5A91-11CF-8700-00AA0060263B}\1.0\0\win32"
-            try:
-                with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, key_path) as key:
-                    tlb_path, _ = winreg.QueryValueEx(key, "")
-                    log.info(f"Found type library at: {tlb_path}")
-                    ppt_gen = comtypes.client.GetModule(tlb_path)
-                    if hasattr(ppt_gen, 'EApplication'):
-                        _ppt_events_interface = ppt_gen.EApplication
-                        log.info(f"Found EApplication interface: {_ppt_events_interface}")
-                        return _ppt_events_interface
-            except FileNotFoundError:
-                log.warning("Type library not found in HKCR registry")
-
-        except Exception as e:
-            log.warning(f"Registry approach failed: {e}")
-
-        log.error("All approaches to load PowerPoint type library failed")
-
+        if 'wireEApplication' in globals():
+            _ppt_events_interface = wireEApplication
+            log.info(f"Using wireEApplication from NVDA built-in: {wireEApplication}")
+            return _ppt_events_interface
+        else:
+            log.warning("wireEApplication not found in globals after import *")
     except Exception as e:
-        log.error(f"Failed to get events interface: {e}")
+        log.error(f"Failed to get wireEApplication: {e}")
 
     return None
 
@@ -221,6 +162,7 @@ class PowerPointWorker:
     v0.0.16: Uses COM events instead of polling for slide change detection.
     v0.0.17: Fixed import error in type library loading.
     v0.0.18: Multiple approaches to load type library (app object, GUID, registry).
+    v0.0.19: Use wireEApplication from NVDA's built-in module instead of loading type library.
     """
 
     # View type constants
