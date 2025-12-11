@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.47"
+ADDON_VERSION = "0.0.48"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -203,6 +203,7 @@ class PowerPointWorker:
     v0.0.45: Fix auto-tab on PageUp/PageDown slide navigation - reset flag before navigate.
     v0.0.46: Use _pending_auto_focus flag for reliable auto-tab after slide navigation.
     v0.0.47: Announce slide number and title on PageUp/PageDown navigation.
+    v0.0.48: Skip cancelSpeech after slide navigation to avoid cutting off title.
     """
 
     # View type constants
@@ -820,9 +821,11 @@ class AppModule(AppModule):
 
             # v0.0.46: Check for pending auto-focus (set by PageUp/PageDown navigation)
             # This triggers when ANY comments pane element gets focus after slide change
+            # v0.0.48: Set _just_navigated flag to skip cancelSpeech for first comment
             if is_in_comments and getattr(self, '_pending_auto_focus', False):
                 self._pending_auto_focus = False
                 self._in_comments_pane = True
+                self._just_navigated = True  # v0.0.48: Don't cancel speech for this comment
                 # If we landed on NewCommentButton, tab to first comment
                 if uia_id == 'NewCommentButton':
                     log.info("Auto-focus after slide change - tabbing to first comment")
@@ -868,7 +871,12 @@ class AppModule(AppModule):
                         author = author_part
 
                 if author and description:
-                    speech.cancelSpeech()
+                    # v0.0.48: Skip cancelSpeech after slide navigation to let title finish
+                    if not getattr(self, '_just_navigated', False):
+                        speech.cancelSpeech()
+                    else:
+                        self._just_navigated = False  # Clear flag after use
+                        log.info("Skipped cancelSpeech - letting slide title finish")
                     if is_resolved:
                         formatted = f"Resolved - {author}: {description}"
                     else:
@@ -888,7 +896,12 @@ class AppModule(AppModule):
                         author = after_prefix.split(" on ", 1)[0]
 
                 if author and description:
-                    speech.cancelSpeech()
+                    # v0.0.48: Skip cancelSpeech after slide navigation to let title finish
+                    if not getattr(self, '_just_navigated', False):
+                        speech.cancelSpeech()
+                    else:
+                        self._just_navigated = False  # Clear flag after use
+                        log.info("Skipped cancelSpeech - letting slide title finish")
                     formatted = f"Reply - {author}: {description}"
                     ui.message(formatted)
                     log.info(f"Reply reformatted: {formatted[:80]}")
