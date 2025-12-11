@@ -261,60 +261,123 @@ count = safe_com_call(lambda: slide.Comments.Count, fallback=0)
 
 PowerPoint exposes application-level events via COM. This is superior to polling for detecting slide changes.
 
-### Available Events
+**CRITICAL:** See `research/PowerPoint-COM-Events-Research.md` for comprehensive details.
 
-| Event | When Fired | Use For |
-|-------|------------|---------|
-| `SlideSelectionChanged` | Slide thumbnail selection changes | Detecting slide navigation |
-| `WindowSelectionChange` | Text, shape, or slide selection changes | Broader selection tracking |
-| `SlideShowBegin` | Slideshow starts | Disable monitoring |
-| `SlideShowEnd` | Slideshow ends | Re-enable monitoring |
-| `PresentationClose` | File closed | Cleanup |
+### Key Insight: Define Your Own Interface
+
+**DO NOT try to load PowerPoint's type library** - it fails with "Library not registered" in many environments.
+
+**DO define your own EApplication interface class** matching NVDA's pattern. This is reliable and works everywhere.
+
+### Available Events and DISPIDs
+
+| Event | DISPID | When Fired | Notes |
+|-------|--------|------------|-------|
+| `WindowSelectionChange` | 2001 | Text, shape, or slide selection changes | **RECOMMENDED** - reliable |
+| `WindowBeforeRightClick` | 2002 | Before right-click | |
+| `WindowBeforeDoubleClick` | 2003 | Before double-click | |
+| `PresentationClose` | 2004 | Presentation closing | |
+| `PresentationSave` | 2005 | Presentation saved | |
+| `PresentationOpen` | 2006 | Presentation opened | |
+| `NewPresentation` | 2007 | New presentation created | |
+| `PresentationNewSlide` | 2008 | New slide added | |
+| `SlideShowBegin` | 2010 | Slideshow starts | |
+| `SlideShowEnd` | 2011 | Slideshow ends | |
+| `SlideShowNextSlide` | 2013 | Slide advances in slideshow | Used by NVDA |
+| `SlideSelectionChanged` | ~2014? | Slide selection changes | DISPID unconfirmed |
 
 ### EApplication Interface
 
-PowerPoint events use the `EApplication` interface (ProgID: `PowerPoint.Application`).
+**Interface GUID:** `{914934C2-5A91-11CF-8700-00AA0060263B}` (EApplication events)
 
-**PowerPoint Type Library GUID:** `{91493440-5A91-11CF-8700-00AA0060263B}`
+**Type Library GUID:** `{91493440-5A91-11CF-8700-00AA0060263B}` (PowerPoint type library - DO NOT USE)
+
+### Correct Implementation Pattern
 
 ```python
+import comtypes
+from comtypes.automation import IDispatch
 from comtypes import COMObject
-from comtypes.client import GetEvents, GetModule
+import comtypes.client._events
+import ctypes
+
+# Step 1: Define the EApplication interface locally
+# This is how NVDA does it - define only the events you need
+class EApplication(IDispatch):
+    """PowerPoint Application Events interface.
+
+    GUID: {914934C2-5A91-11CF-8700-00AA0060263B}
+    Define only the events you need with their DISPIDs.
+    """
+    _iid_ = comtypes.GUID("{914934C2-5A91-11CF-8700-00AA0060263B}")
+    _methods_ = []
+    _disp_methods_ = [
+        # WindowSelectionChange (DISPID 2001) - fires on ANY selection change
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2001)],
+            None,
+            "WindowSelectionChange",
+            (["in"], ctypes.POINTER(IDispatch), "sel"),
+        ),
+        # SlideShowNextSlide (DISPID 2013) - fires during slideshow
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2013)],
+            None,
+            "SlideShowNextSlide",
+            (["in"], ctypes.POINTER(IDispatch), "slideShowWindow"),
+        ),
+    ]
+
+
+# Step 2: Create event sink that implements the interface
+class PowerPointEventSink(COMObject):
+    """COM Event Sink for PowerPoint application events."""
+    _com_interfaces_ = [EApplication, IDispatch]
+
+    def __init__(self, callback):
+        super().__init__()
+        self._callback = callback
+        self._last_slide = -1
+
+    def WindowSelectionChange(self, sel):
+        """Fires on any selection change - reliable for slide detection."""
+        if self._callback:
+            self._callback("selection_change", sel)
+
+    def SlideShowNextSlide(self, slideShowWindow=None):
+        """Fires when slide advances in slideshow mode."""
+        if self._callback:
+            self._callback("slideshow_slide", slideShowWindow)
+
+
+# Step 3: Connect using _AdviseConnection (NOT GetEvents)
 import comHelper
 
-# Step 1: Load PowerPoint type library to get EApplication interface
-ppt_gen = GetModule(['{91493440-5A91-11CF-8700-00AA0060263B}', 1, 0])
-EApplication = ppt_gen.EApplication  # The events interface
+ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+sink = PowerPointEventSink(my_callback)
 
-class PowerPointEventSink(COMObject):
-    """Receives PowerPoint application events."""
+# Get IUnknown from sink
+sink_iunknown = sink.QueryInterface(comtypes.IUnknown)
 
-    # MUST set this AFTER loading type library
-    _com_interfaces_ = [EApplication]
+# Create advise connection - KEEP THIS REFERENCE!
+connection = comtypes.client._events._AdviseConnection(
+    ppt_app,
+    EApplication,
+    sink_iunknown,
+)
 
-    def SlideSelectionChanged(self, SldRange):
-        """Called when slide selection changes in thumbnail pane."""
-        # SldRange is a SlideRange object
-        if SldRange and SldRange.Count > 0:
-            slide_index = SldRange.Item(1).SlideIndex
-            # Handle slide change
-
-    def WindowSelectionChange(self, Sel):
-        """Called when selection changes in window."""
-        # Sel is a Selection object with Type property:
-        # 0=ppSelectionNone, 1=ppSelectionSlides, 2=ppSelectionShapes, 3=ppSelectionText
-        pass
-
-# Step 2: Connect to PowerPoint (use comHelper for NVDA!)
-ppt = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
-
-# Step 3: Create sink and connect
-sink = PowerPointEventSink()
-connection = GetEvents(ppt, sink)
-
-# Step 4: CRITICAL - Pump Windows messages for events to fire
-# See "Message Pump Requirement" section below
+# Step 4: Pump messages to receive events (see below)
 ```
+
+### Why NOT to Use GetModule/GetEvents
+
+| Approach | Problem |
+|----------|---------|
+| `GetModule([GUID, 1, 0])` | "Library not registered" error |
+| `GetModule(ppt_app)` | May fail, requires writable comtypes.gen |
+| `GetEvents(ppt, sink)` | Requires type library to be loaded first |
+
+**Solution:** Define interface locally + use `_AdviseConnection` directly.
 
 ### Message Pump Requirement
 
@@ -346,17 +409,27 @@ while not stop_event.is_set():
 
 ### NVDA's Built-in Pattern
 
-NVDA's PowerPoint module uses `ppEApplicationSink` for event handling:
+NVDA's PowerPoint module (`powerpnt.py`) defines its own `EApplication` class:
 
 ```python
-# From nvdaBuiltin.appModules.powerpnt
-class ppEApplicationSink(COMObject):
-    _com_interfaces_ = [wireEApplication]
+# From NVDA source - nvaccess/nvda/source/appModules/powerpnt.py
+class EApplication(IDispatch):
+    _iid_ = comtypes.GUID("{914934C2-5A91-11CF-8700-00AA0060263B}")
+    _methods_ = []
+    _disp_methods_ = [
+        comtypes.DISPMETHOD([comtypes.dispid(2001)], None, "WindowSelectionChange", ...),
+        comtypes.DISPMETHOD([comtypes.dispid(2013)], None, "SlideShowNextSlide", ...),
+    ]
 
-    def wireWindowSelectionChange(self, pSel):
-        """Handle selection change in PowerPoint window."""
-        # NVDA processes selection and updates focus
+class ppEApplicationSink(COMObject):
+    _com_interfaces_ = [EApplication, IDispatch]
+
+    def WindowSelectionChange(self, sel):
+        # Handle selection change
+        ...
 ```
+
+**Note:** `wireEApplication` does NOT exist in NVDA's source. This was a misunderstanding.
 
 ### Threading Considerations
 
@@ -364,19 +437,20 @@ COM events require:
 1. **STA Initialization**: `CoInitializeEx(COINIT_APARTMENTTHREADED)`
 2. **Message Pump**: Events are delivered via Windows messages
 3. **Same Thread**: Event sink must be created on COM thread
+4. **Keep Connection Alive**: Store `_AdviseConnection` reference to prevent GC
 
-For NVDA addons, the pattern is:
-- Create event sink on main thread (already STA)
-- Or use `wx.CallAfter()` / `core.callLater()` for thread safety
+For NVDA addons:
+- Use a dedicated background thread with its own COM initialization
+- Or use main thread (already STA) with `core.callLater()` for callbacks
 
 ### Event vs Polling Comparison
 
 | Approach | Pros | Cons |
 |----------|------|------|
 | **Polling** | Simple, works everywhere | CPU usage, latency (poll interval) |
-| **Events** | Instant, no CPU waste | Requires COM event setup, message pump |
+| **Events** | Instant, no CPU waste | Requires interface definition, message pump |
 
-**Recommendation:** Use events when possible; fall back to polling if events fail.
+**Recommendation:** Use events with locally-defined interface. This is the proven pattern NVDA uses.
 
 ## Performance Notes
 

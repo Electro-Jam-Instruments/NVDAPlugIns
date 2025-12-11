@@ -21,6 +21,7 @@ This repository contains NVDA accessibility plugins, starting with **powerpoint-
 | `MVP_IMPLEMENTATION_PLAN.md` | Current implementation plan (6 phases) |
 | `REPO_STRUCTURE.md` | Multi-plugin repository structure |
 | `.agent/experts/` | Domain knowledge and research |
+| `.agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md` | **Critical:** COM events implementation research |
 
 ## Expert Knowledge Areas
 
@@ -93,6 +94,47 @@ ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
 
 Direct `GetActiveObject()` fails with UIAccess privilege error. See `decisions.md` Decision #11.
 
+## CRITICAL: COM Events Pattern (Phase 2)
+
+**Define EApplication interface LOCALLY - do NOT use type library:**
+
+The PowerPoint type library fails to load reliably ("Library not registered" error). NVDA's own powerpnt.py module defines the EApplication interface locally, and we must do the same.
+
+```python
+import comtypes
+from comtypes import IDispatch, COMObject
+from comtypes.client._events import _AdviseConnection
+
+class EApplication(IDispatch):
+    """PowerPoint Application events interface - defined locally."""
+    _iid_ = comtypes.GUID("{914934C2-5A91-11CF-8700-00AA0060263B}")
+    _methods_ = []
+    _disp_methods_ = [
+        comtypes.DISPMETHOD([comtypes.dispid(2001)], None, "WindowSelectionChange",
+            (["in"], ctypes.POINTER(IDispatch), "sel")),
+    ]
+
+class PowerPointEventSink(COMObject):
+    _com_interfaces_ = [EApplication, IDispatch]
+
+    def WindowSelectionChange(self, sel):
+        # Called when slide selection changes
+        pass
+
+# Connection (on STA thread with message pump):
+sink = PowerPointEventSink()
+sink_iunknown = sink.QueryInterface(comtypes.IUnknown)
+connection = _AdviseConnection(ppt_app, EApplication, sink_iunknown)
+```
+
+**Key points:**
+- Interface GUID: `{914934C2-5A91-11CF-8700-00AA0060263B}` (NOT the type library GUID)
+- WindowSelectionChange DISPID: 2001
+- Use `_AdviseConnection()` NOT `GetEvents()`
+- Requires STA COM initialization + Windows message pump
+
+See `.agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md` for complete details.
+
 ## Technical Decisions (Summary)
 
 See individual `decisions.md` files in expert folders for full rationale.
@@ -131,18 +173,15 @@ NVDA-Plugins/
 ## Version
 
 - **Last Updated:** December 2025
-- **Current Version:** v0.0.16
-- **Status:** Phase 2 Slide Change Detection via COM Events
+- **Current Version:** v0.0.20
+- **Status:** Phase 2 Slide Change Detection - Researching COM Events
   - AppModule loads using NVDA doc pattern
   - COM connection working via comHelper
   - Dedicated background thread for COM operations (v0.0.14)
   - Thread-safe UI announcements via queueHandler
   - Clean shutdown with terminate() method
   - Presentation detection and view switching working
-  - **Phase 2 (v0.0.16):** COM events for slide detection (replaces polling)
-  - **Phase 2 (v0.0.16):** SlideSelectionChanged + WindowSelectionChange events
-  - **Phase 2 (v0.0.16):** Windows message pump for event delivery
-  - **Phase 2 (v0.0.16):** Comprehensive error logging
-  - Comment counting on slide change
-  - Auto-open Comments pane when comments exist
-  - Ready for testing COM event-driven detection
+  - **v0.0.16-v0.0.20:** Type library approach failed ("Library not registered")
+  - **Research Complete:** Correct approach documented - define EApplication locally
+  - **Next:** Implement using locally-defined EApplication interface pattern
+  - See `.agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md`

@@ -426,3 +426,95 @@ class AppModule(AppModule):
 ```
 
 **Key Insight:** NVDA maintainers recommend dedicated threads over `core.callLater()` for anything beyond simple one-shot operations. This pattern is reusable for future NVDA plugins.
+
+---
+
+### 13. Define EApplication Interface Locally (NOT from Type Library)
+
+**Decision:** Define the PowerPoint EApplication COM events interface locally, do NOT use type library loading
+**Date:** December 2025
+**Status:** VERIFIED through research (v0.0.16-v0.0.20 failures, then research)
+
+**The Problem:**
+- v0.0.16-v0.0.20 tried to load PowerPoint type library to get event interfaces
+- ALL approaches failed with `[WinError -2147319779] Library not registered`
+- Tried: GetModule by app object, GUID lookup, registry path - all failed
+
+**The Discovery:**
+- NVDA's own `nvdaBuiltin/appModules/powerpnt.py` defines `EApplication` class LOCALLY
+- It does NOT import from a type library
+- The class defines interface GUID and DISPIDs manually
+- `wireEApplication` does NOT exist - this was a misunderstanding of NVDA's code
+
+**The Solution - Define Interface Locally:**
+
+```python
+import comtypes
+from comtypes import IDispatch, COMObject
+from comtypes.client._events import _AdviseConnection
+import ctypes
+
+class EApplication(IDispatch):
+    """PowerPoint Application events interface - defined locally."""
+    _iid_ = comtypes.GUID("{914934C2-5A91-11CF-8700-00AA0060263B}")  # Events interface GUID
+    _methods_ = []
+    _disp_methods_ = [
+        comtypes.DISPMETHOD([comtypes.dispid(2001)], None, "WindowSelectionChange",
+            (["in"], ctypes.POINTER(IDispatch), "sel")),
+        comtypes.DISPMETHOD([comtypes.dispid(2013)], None, "SlideShowNextSlide",
+            (["in"], ctypes.POINTER(IDispatch), "slideShowWindow")),
+    ]
+
+class PowerPointEventSink(COMObject):
+    _com_interfaces_ = [EApplication, IDispatch]
+
+    def WindowSelectionChange(self, sel):
+        # Called when slide selection changes in edit mode
+        pass
+
+    def SlideShowNextSlide(self, slideShowWindow):
+        # Called during slideshow navigation
+        pass
+
+# Connection (on STA thread with message pump):
+sink = PowerPointEventSink()
+sink_iunknown = sink.QueryInterface(comtypes.IUnknown)
+connection = _AdviseConnection(ppt_app, EApplication, sink_iunknown)
+```
+
+**Critical GUIDs and DISPIDs:**
+
+| Item | Value | Notes |
+|------|-------|-------|
+| EApplication Interface GUID | `{914934C2-5A91-11CF-8700-00AA0060263B}` | USE THIS |
+| Type Library GUID | `{91493440-5A91-11CF-8700-00AA0060263B}` | DO NOT USE - causes "Library not registered" |
+| WindowSelectionChange DISPID | 2001 | Edit mode slide changes |
+| SlideShowNextSlide DISPID | 2013 | Slideshow navigation |
+
+**Why Type Library Loading Fails:**
+- PowerPoint's type library may not be registered properly on all systems
+- Office 365 deployment may not register type libraries in expected locations
+- GUID-based loading is less reliable than app-object-based loading
+- Even when type library loads, wire interfaces have naming conflicts
+
+**What NVDA Does (source: powerpnt.py):**
+1. Defines `EApplication(IDispatch)` class locally with GUID and DISPIDs
+2. Creates `PowerPointEventSink(COMObject)` implementing the interface
+3. Uses `_AdviseConnection()` to connect sink to PowerPoint Application
+4. Runs Windows message pump to receive events
+
+**What We Tried That Failed:**
+
+| Version | Approach | Result |
+|---------|----------|--------|
+| v0.0.16 | `GetModule(ppt_app)` | `Library not registered` |
+| v0.0.17 | Fixed bad import | Same error |
+| v0.0.18 | Multiple fallbacks (GUID, registry) | All failed |
+| v0.0.19 | Access `wireEApplication` via `import *` | Not exported |
+| v0.0.20 | Access via `hasattr(module, 'wireEApplication')` | Not found |
+
+**Research Document:** `.agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md`
+
+**Key Insight:** When COM type library loading fails, define the interface locally. This is exactly what NVDA does, and it works reliably because it doesn't depend on system type library registration.
+
+---

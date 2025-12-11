@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.20"
+ADDON_VERSION = "0.0.21"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -21,75 +21,68 @@ log.info(f"PowerPoint Comments addon: Module loading (v{ADDON_VERSION})")
 from nvdaBuiltin.appModules.powerpnt import *
 log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 
-# Try to import wireEApplication directly - it's not exported via __all__
-# but we can access it by explicit import
-import nvdaBuiltin.appModules.powerpnt as _nvda_powerpnt
-_wireEApplication = None
-try:
-    if hasattr(_nvda_powerpnt, 'wireEApplication'):
-        _wireEApplication = _nvda_powerpnt.wireEApplication
-        log.info(f"wireEApplication found via direct module access: {_wireEApplication}")
-    else:
-        log.warning("wireEApplication not found in nvdaBuiltin.appModules.powerpnt")
-        # List what IS available for debugging
-        attrs = [a for a in dir(_nvda_powerpnt) if not a.startswith('_')]
-        log.info(f"Available in powerpnt module (first 30): {attrs[:30]}")
-except Exception as e:
-    log.error(f"Failed to get wireEApplication: {e}")
-
 # Additional imports for our functionality
 import comHelper  # NVDA's COM helper - handles UIAccess privilege issues
 import ui
 import threading
 import ctypes
-from comtypes import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COMObject
-from comtypes.client import GetEvents
+import comtypes
+from comtypes import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COMObject, GUID
+from comtypes.automation import IDispatch
+from comtypes.client._events import _AdviseConnection
 from queueHandler import queueFunction, eventQueue
 
 # ============================================================================
-# COM Event Sink for PowerPoint Application Events
+# COM Event Interface - Defined Locally (v0.0.21)
 # ============================================================================
+#
+# CRITICAL: We define the EApplication interface locally because:
+# 1. PowerPoint's type library fails to load ("Library not registered")
+# 2. This is exactly how NVDA's built-in powerpnt.py does it
+# 3. It's reliable and doesn't depend on system type library registration
+#
+# See: .agent/experts/nvda-plugins/research/PowerPoint-COM-Events-Research.md
 
-# We need to get the EApplication interface from PowerPoint's type library
-# This will be populated when we connect to PowerPoint
-_ppt_events_interface = None
 
+class EApplication(IDispatch):
+    """PowerPoint Application Events interface.
 
-def _get_ppt_events_interface(ppt_app):
-    """Get the EApplication events interface for PowerPoint COM events.
+    Defined locally to avoid type library loading issues.
+    GUID and DISPIDs match PowerPoint's EApplication interface.
 
-    Returns the interface class or None if not available.
-
-    v0.0.20: Access wireEApplication via direct module import.
+    Interface GUID: {914934C2-5A91-11CF-8700-00AA0060263B}
     """
-    global _ppt_events_interface
-
-    if _ppt_events_interface is not None:
-        return _ppt_events_interface
-
-    # Use wireEApplication from NVDA's built-in module (fetched at module load)
-    if _wireEApplication is not None:
-        _ppt_events_interface = _wireEApplication
-        log.info(f"Using wireEApplication: {_wireEApplication}")
-        return _ppt_events_interface
-    else:
-        log.warning("wireEApplication not available - slide change detection disabled")
-
-    return None
+    _iid_ = GUID("{914934C2-5A91-11CF-8700-00AA0060263B}")
+    _methods_ = []
+    _disp_methods_ = [
+        # WindowSelectionChange (DISPID 2001) - fires on ANY selection change
+        # This is the most reliable event for detecting slide changes in edit mode
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2001)],
+            None,
+            "WindowSelectionChange",
+            (["in"], ctypes.POINTER(IDispatch), "sel"),
+        ),
+        # SlideShowNextSlide (DISPID 2013) - fires during slideshow
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2013)],
+            None,
+            "SlideShowNextSlide",
+            (["in"], ctypes.POINTER(IDispatch), "slideShowWindow"),
+        ),
+    ]
 
 
 class PowerPointEventSink(COMObject):
     """COM Event Sink for PowerPoint application events.
 
-    Receives SlideSelectionChanged and WindowSelectionChange events from PowerPoint.
+    Receives WindowSelectionChange events from PowerPoint.
     Calls back to the worker thread to process slide changes.
 
-    The _com_interfaces_ attribute is set dynamically when we connect,
-    because we need the PowerPoint type library to be loaded first.
+    v0.0.21: Uses locally-defined EApplication interface instead of type library.
     """
 
-    # Will be set dynamically when interface is discovered
-    _com_interfaces_ = []
+    _com_interfaces_ = [EApplication, IDispatch]
 
     def __init__(self, worker):
         """Initialize the event sink.
@@ -100,54 +93,51 @@ class PowerPointEventSink(COMObject):
         super().__init__()
         self._worker = worker
         self._last_slide_index = -1
-        log.info("PowerPointEventSink: Initialized")
+        log.info("PowerPointEventSink: Initialized with local EApplication interface")
 
-    def SlideSelectionChanged(self, SldRange):
-        """Called when slide selection changes in thumbnail pane.
-
-        Args:
-            SldRange: SlideRange object containing selected slides
-        """
-        try:
-            log.debug("PowerPointEventSink: SlideSelectionChanged event received")
-            if SldRange and SldRange.Count > 0:
-                slide_index = SldRange.Item(1).SlideIndex
-                log.info(f"PowerPointEventSink: Slide selected - index {slide_index}")
-
-                if slide_index != self._last_slide_index:
-                    self._last_slide_index = slide_index
-                    # Notify worker of slide change
-                    if self._worker:
-                        self._worker.on_slide_changed_event(slide_index)
-            else:
-                log.debug("PowerPointEventSink: SlideSelectionChanged - no slides in range")
-        except Exception as e:
-            log.error(f"PowerPointEventSink: Error in SlideSelectionChanged - {e}")
-
-    def WindowSelectionChange(self, Sel):
+    def WindowSelectionChange(self, sel):
         """Called when selection changes in PowerPoint window.
 
-        This is a broader event that fires for text, shape, and slide selections.
-        We use it as a backup in case SlideSelectionChanged doesn't fire.
+        This event fires for text, shape, and slide selections.
+        We check if the slide index has changed.
 
         Args:
-            Sel: Selection object with Type property:
-                 0=ppSelectionNone, 1=ppSelectionSlides, 2=ppSelectionShapes, 3=ppSelectionText
+            sel: Selection object (IDispatch)
         """
         try:
-            log.debug(f"PowerPointEventSink: WindowSelectionChange event received")
-            # We could check Sel.Type here, but for now just check slide index
+            log.debug("PowerPointEventSink: WindowSelectionChange event received")
             if self._worker and self._worker._ppt_app:
                 try:
                     current_index = self._worker._ppt_app.ActiveWindow.View.Slide.SlideIndex
                     if current_index != self._last_slide_index:
-                        log.info(f"PowerPointEventSink: Slide change detected via WindowSelectionChange - {current_index}")
+                        log.info(f"PowerPointEventSink: Slide changed to {current_index}")
                         self._last_slide_index = current_index
                         self._worker.on_slide_changed_event(current_index)
                 except Exception as e:
-                    log.debug(f"PowerPointEventSink: Could not get slide in WindowSelectionChange - {e}")
+                    log.debug(f"PowerPointEventSink: Could not get slide - {e}")
         except Exception as e:
             log.error(f"PowerPointEventSink: Error in WindowSelectionChange - {e}")
+
+    def SlideShowNextSlide(self, slideShowWindow):
+        """Called when slide advances in slideshow mode.
+
+        Args:
+            slideShowWindow: SlideShowWindow object (IDispatch)
+        """
+        try:
+            log.debug("PowerPointEventSink: SlideShowNextSlide event received")
+            if self._worker and slideShowWindow:
+                try:
+                    # Get slide index from slideshow window
+                    slide_index = slideShowWindow.View.Slide.SlideIndex
+                    if slide_index != self._last_slide_index:
+                        log.info(f"PowerPointEventSink: Slideshow slide changed to {slide_index}")
+                        self._last_slide_index = slide_index
+                        self._worker.on_slide_changed_event(slide_index)
+                except Exception as e:
+                    log.debug(f"PowerPointEventSink: Could not get slideshow slide - {e}")
+        except Exception as e:
+            log.error(f"PowerPointEventSink: Error in SlideShowNextSlide - {e}")
 
 
 # ============================================================================
@@ -165,6 +155,7 @@ class PowerPointWorker:
     v0.0.18: Multiple approaches to load type library (app object, GUID, registry).
     v0.0.19: Use wireEApplication from NVDA's built-in module instead of loading type library.
     v0.0.20: Access wireEApplication via direct module import (not relying on import *).
+    v0.0.21: Define EApplication interface locally, use _AdviseConnection (NVDA pattern).
     """
 
     # View type constants
@@ -328,7 +319,11 @@ class PowerPointWorker:
             self._initialized = False
 
     def _connect_events(self):
-        """Connect to PowerPoint application events."""
+        """Connect to PowerPoint application events.
+
+        v0.0.21: Uses _AdviseConnection with locally-defined EApplication interface.
+        This is the same pattern NVDA's built-in PowerPoint module uses.
+        """
         if not self._ppt_app:
             log.warning("Worker: Cannot connect events - no PowerPoint app")
             return
@@ -337,25 +332,28 @@ class PowerPointWorker:
             # First disconnect any existing connection
             self._disconnect_events()
 
-            # Get the events interface
-            events_interface = _get_ppt_events_interface(self._ppt_app)
+            # Create event sink with our locally-defined EApplication interface
+            self._event_sink = PowerPointEventSink(self)
+            log.info("Worker: Created PowerPointEventSink")
 
-            if events_interface:
-                # Set the interface on our sink class
-                PowerPointEventSink._com_interfaces_ = [events_interface]
+            # Get IUnknown from sink for advise connection
+            sink_iunknown = self._event_sink.QueryInterface(comtypes.IUnknown)
+            log.info("Worker: Got IUnknown from sink")
 
-                # Create event sink
-                self._event_sink = PowerPointEventSink(self)
+            # Connect using _AdviseConnection (NOT GetEvents)
+            # This is how NVDA's built-in powerpnt.py connects to events
+            self._event_connection = _AdviseConnection(
+                self._ppt_app,
+                EApplication,
+                sink_iunknown
+            )
 
-                # Connect to events
-                self._event_connection = GetEvents(self._ppt_app, self._event_sink)
-
-                log.info("Worker: Connected to PowerPoint events successfully")
-            else:
-                log.error("Worker: Could not get PowerPoint events interface - slide change detection disabled")
+            log.info("Worker: Connected to PowerPoint events via _AdviseConnection")
 
         except Exception as e:
             log.error(f"Worker: Failed to connect to PowerPoint events - {e}")
+            import traceback
+            log.error(f"Worker: Traceback: {traceback.format_exc()}")
             self._event_sink = None
             self._event_connection = None
 
