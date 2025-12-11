@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.33"
+ADDON_VERSION = "0.0.34"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -188,6 +188,7 @@ class PowerPointWorker:
     v0.0.31: Clean up diagnostic logging, use UIAutomationId for _is_in_comments_pane.
     v0.0.32: Add comment card diagnostic logging to analyze name/states for trimming.
     v0.0.33: Reformat comment announcements to "Author: comment" or "Resolved - Author: comment".
+    v0.0.34: Fix comment detection - use name-based fallback when UIAAutomationId not available.
     """
 
     # View type constants
@@ -736,15 +737,25 @@ class AppModule(AppModule):
     def event_gainFocus(self, obj, nextHandler):
         """Called when any object in PowerPoint gains focus.
 
-        v0.0.33: Reformat comment card announcements.
+        v0.0.34: Reformat comment card announcements.
         Format: "Author: comment text" or "Resolved - Author: comment text"
         """
         try:
             uia_id = getattr(obj, 'UIAAutomationId', '') or ''
+            name = getattr(obj, 'name', '') or ''
+
+            # Debug: Log all focus changes with "Comment" in name
+            if 'Comment' in name or 'comment' in name:
+                log.info(f"FOCUS_DEBUG: uia_id='{uia_id}', name='{name[:80]}...'")
 
             # Reformat comment card announcements
-            if uia_id.startswith('cardRoot_'):
-                name = getattr(obj, 'name', '') or ''
+            # Try both UIAAutomationId and name-based detection
+            is_comment_card = (
+                uia_id.startswith('cardRoot_') or
+                'Comment thread started by' in name
+            )
+
+            if is_comment_card:
                 description = getattr(obj, 'description', '') or ''
 
                 # Extract author and resolved state from name
@@ -754,7 +765,13 @@ class AppModule(AppModule):
                 author = ""
 
                 if " started by " in name:
-                    author = name.split(" started by ", 1)[1]
+                    # Author may have suffix like ", with 1 reply"
+                    author_part = name.split(" started by ", 1)[1]
+                    # Remove suffix like ", with 1 reply"
+                    if ", with " in author_part:
+                        author = author_part.split(", with ")[0]
+                    else:
+                        author = author_part
 
                 # Build new announcement
                 if author and description:
