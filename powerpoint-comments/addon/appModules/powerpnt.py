@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.52"
+ADDON_VERSION = "0.0.53"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -206,6 +206,9 @@ class PowerPointWorker:
     v0.0.48: Skip cancelSpeech after slide navigation to avoid cutting off title.
     v0.0.49: Add slide notes detection and Ctrl+Alt+N shortcut to read notes.
     v0.0.50: Fix double slide title announcement; strip **** and tag markers from notes.
+    v0.0.51: Remove "Notes:" prefix; shorten "No notes on this slide" to "No notes".
+    v0.0.52: Only detect/read notes with **** markers (meeting notes).
+    v0.0.53: Extract only text BETWEEN **** markers, ignore text before/after.
     """
 
     # View type constants
@@ -639,15 +642,25 @@ class PowerPointWorker:
         return '****' in notes
 
     def _clean_notes_text(self, notes):
-        """Clean notes text by removing marker tags.
+        """Extract meeting notes content between **** markers.
 
         v0.0.50: Strips **** markers and <meeting notes> tags from notes.
+        v0.0.53: Only extracts text BETWEEN **** markers, ignoring text before/after.
         """
         import re
         if not notes:
             return notes
-        # Remove **** markers (with optional whitespace)
-        cleaned = re.sub(r'\*{4,}\s*', '', notes)
+
+        # v0.0.53: Extract only text between **** markers
+        # Pattern: **** content **** (ignoring text before first and after last)
+        marker_pattern = r'\*{4,}\s*(.*?)\s*\*{4,}'
+        match = re.search(marker_pattern, notes, re.DOTALL)
+        if match:
+            cleaned = match.group(1)
+        else:
+            # Fallback: just remove markers (shouldn't happen if **** check passed)
+            cleaned = re.sub(r'\*{4,}\s*', '', notes)
+
         # Remove <meeting notes> and </meeting notes> tags (case insensitive)
         cleaned = re.sub(r'</?meeting\s*notes>', '', cleaned, flags=re.IGNORECASE)
         # Remove <critical notes> and </critical notes> tags (case insensitive)
