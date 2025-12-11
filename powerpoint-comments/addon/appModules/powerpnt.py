@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.22"
+ADDON_VERSION = "0.0.23"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -177,6 +177,7 @@ class PowerPointWorker:
     v0.0.20: Access wireEApplication via direct module import (not relying on import *).
     v0.0.21: Define EApplication interface locally, use _AdviseConnection (NVDA pattern).
     v0.0.22: Use sel.Parent to get correct window when multiple presentations open.
+    v0.0.23: Fix COM threading - queue navigation requests to worker thread.
     """
 
     # View type constants
@@ -198,6 +199,8 @@ class PowerPointWorker:
         self._last_announced_slide = -1
         # v0.0.22: Store current window for correct multi-presentation support
         self._current_window = None
+        # v0.0.23: Queue for navigation requests from main thread
+        self._nav_request = None  # Will be direction: 1 for next, -1 for previous
 
     def start(self):
         """Start the background thread."""
@@ -232,6 +235,18 @@ class PowerPointWorker:
         log.info("Worker: Initialize requested")
         self._initialized = False  # Force re-initialization
 
+    def request_navigate(self, direction):
+        """Request slide navigation from main thread.
+
+        v0.0.23: This queues the request for the worker thread to process.
+        COM objects can only be used on the thread that created them.
+
+        Args:
+            direction: 1 for next slide, -1 for previous slide
+        """
+        log.info(f"Worker: Navigation requested (direction={direction})")
+        self._nav_request = direction
+
     def _run(self):
         """Main thread loop - runs in background."""
         # Initialize COM in STA mode (required for Office)
@@ -256,6 +271,12 @@ class PowerPointWorker:
                     # Check if we need to reinitialize (e.g., after focus regained)
                     if not self._initialized:
                         self._initialize_com()
+
+                    # v0.0.23: Check for navigation requests from main thread
+                    if self._nav_request is not None:
+                        direction = self._nav_request
+                        self._nav_request = None  # Clear before processing
+                        self._navigate_slide(direction)
 
                 except Exception as e:
                     log.error(f"Worker thread error: {e}")
@@ -394,11 +415,19 @@ class PowerPointWorker:
         self._event_sink = None
 
     def _check_initial_slide(self):
-        """Check and announce comments on the initial slide."""
+        """Check and announce comments on the initial slide.
+
+        v0.0.23: Skip if we already announced this slide (prevents double
+        announcements on reinit after focus regained).
+        """
         try:
             current_index = self._get_current_slide_index()
             if current_index > 0:
-                log.info(f"Worker: Initial slide is {current_index}")
+                log.info(f"Worker: Initial slide is {current_index}, last announced was {self._last_announced_slide}")
+                # v0.0.23: Don't re-announce if same slide (prevents flashing on reinit)
+                if current_index == self._last_announced_slide:
+                    log.info("Worker: Skipping re-announcement - same slide")
+                    return
                 self._last_announced_slide = current_index
                 self._announce_slide_comments()
         except Exception as e:
@@ -566,10 +595,11 @@ class PowerPointWorker:
             log.error(f"Worker: Error opening Comments pane - {e}")
         return False
 
-    def navigate_slide(self, direction):
-        """Navigate to next or previous slide.
+    def _navigate_slide(self, direction):
+        """Navigate to next or previous slide (runs on worker thread).
 
         v0.0.22: Added for PageUp/PageDown support in Comments pane.
+        v0.0.23: Renamed to private method - must run on worker thread.
 
         Args:
             direction: 1 for next slide, -1 for previous slide
@@ -581,6 +611,7 @@ class PowerPointWorker:
             window = self._get_window()
             if not window:
                 log.warning("Worker: No window for slide navigation")
+                self._announce("Cannot navigate - no active presentation")
                 return False
 
             current_index = window.View.Slide.SlideIndex
@@ -605,6 +636,7 @@ class PowerPointWorker:
 
         except Exception as e:
             log.error(f"Worker: Error navigating slide - {e}")
+            self._announce("Navigation failed")
             return False
 
 
@@ -715,11 +747,12 @@ class AppModule(AppModule):
         """Navigate to next slide when in Comments pane.
 
         v0.0.22: PageDown switches slides while in Comments pane.
+        v0.0.23: Use request_navigate() to queue for worker thread.
         Otherwise, passes the key through to PowerPoint.
         """
         if self._is_in_comments_pane() and self._worker:
-            log.info("PageDown in Comments pane - navigating to next slide")
-            self._worker.navigate_slide(1)
+            log.info("PageDown in Comments pane - requesting next slide")
+            self._worker.request_navigate(1)
         else:
             # Pass through to PowerPoint
             gesture.send()
@@ -733,11 +766,12 @@ class AppModule(AppModule):
         """Navigate to previous slide when in Comments pane.
 
         v0.0.22: PageUp switches slides while in Comments pane.
+        v0.0.23: Use request_navigate() to queue for worker thread.
         Otherwise, passes the key through to PowerPoint.
         """
         if self._is_in_comments_pane() and self._worker:
-            log.info("PageUp in Comments pane - navigating to previous slide")
-            self._worker.navigate_slide(-1)
+            log.info("PageUp in Comments pane - requesting previous slide")
+            self._worker.request_navigate(-1)
         else:
             # Pass through to PowerPoint
             gesture.send()
