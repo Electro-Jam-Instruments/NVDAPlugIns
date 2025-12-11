@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.44"
+ADDON_VERSION = "0.0.45"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -200,6 +200,7 @@ class PowerPointWorker:
     v0.0.42: Fix whitespace - normalize non-breaking spaces (U+00A0) from PowerPoint.
     v0.0.43: Also reformat reply comments (postRoot_) - strip date/time, announce as "Reply - Author: text".
     v0.0.44: Auto-tab from NewCommentButton to first comment on initial pane entry.
+    v0.0.45: Fix auto-tab on PageUp/PageDown slide navigation - reset flag before navigate.
     """
 
     # View type constants
@@ -892,10 +893,13 @@ class AppModule(AppModule):
 
         v0.0.22: PageDown switches slides while in Comments pane.
         v0.0.23: Use request_navigate() to queue for worker thread.
+        v0.0.45: Reset _in_comments_pane so auto-tab triggers after slide change.
         Otherwise, passes the key through to PowerPoint.
         """
         if self._is_in_comments_pane() and self._worker:
             log.info("PageDown in Comments pane - requesting next slide")
+            # v0.0.45: Reset flag so auto-tab triggers when focus returns to Comments pane
+            self._in_comments_pane = False
             self._worker.request_navigate(1)
         else:
             # Pass through to PowerPoint
@@ -911,10 +915,13 @@ class AppModule(AppModule):
 
         v0.0.22: PageUp switches slides while in Comments pane.
         v0.0.23: Use request_navigate() to queue for worker thread.
+        v0.0.45: Reset _in_comments_pane so auto-tab triggers after slide change.
         Otherwise, passes the key through to PowerPoint.
         """
         if self._is_in_comments_pane() and self._worker:
             log.info("PageUp in Comments pane - requesting previous slide")
+            # v0.0.45: Reset flag so auto-tab triggers when focus returns to Comments pane
+            self._in_comments_pane = False
             self._worker.request_navigate(-1)
         else:
             # Pass through to PowerPoint
