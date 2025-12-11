@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.12"
+ADDON_VERSION = "0.0.13"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -22,7 +22,7 @@ from nvdaBuiltin.appModules.powerpnt import *
 log.info("PowerPoint Comments addon: Built-in powerpnt imported successfully")
 
 # Additional imports for our functionality
-from comtypes.client import GetActiveObject
+import comHelper  # NVDA's COM helper - handles UIAccess privilege issues
 import ui
 import core  # For callLater - deferred execution
 
@@ -82,10 +82,16 @@ class AppModule(AppModule):
             log.error(f"Deferred initialization failed: {e}")
 
     def _connect_to_powerpoint(self):
-        """Connect to running PowerPoint instance."""
+        """Connect to running PowerPoint instance.
+
+        Uses comHelper.getActiveObject() instead of direct GetActiveObject()
+        because NVDA runs with UIAccess privileges which prevents direct
+        COM access to lower-privilege processes like PowerPoint.
+        """
         try:
-            self._ppt_app = GetActiveObject("PowerPoint.Application")
-            log.info("PowerPoint Comments: Connected to COM")
+            # Use NVDA's comHelper which handles UIAccess privilege issues
+            self._ppt_app = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
+            log.info("PowerPoint Comments: Connected to COM via comHelper")
             return True
         except OSError as e:
             # WinError -2147221021: Operation unavailable
