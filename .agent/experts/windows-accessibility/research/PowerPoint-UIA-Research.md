@@ -274,7 +274,7 @@ if (uia_id == 'NewCommentButton' or
 - More reliable than checking for "comment" in element names
 - Survives Office UI updates that may change display text
 
-### Comment Card Announcement Reformatting (v0.0.36)
+### Comment Card Announcement Reformatting (v0.0.37+)
 
 **Problem:** The default comment card announcement is verbose:
 ```
@@ -284,16 +284,21 @@ if (uia_id == 'NewCommentButton' or
 **Solution:** Reformat to concise author + comment text:
 - Unresolved: `"Brett Humphrey: @John Smith please review..."`
 - Resolved: `"Resolved - Brett Humphrey: Should we add a note..."`
+- Reply: `"Reply - John Smith: Looks good to me"`
 
-**Technical Implementation:**
+**Technical Implementation (v0.0.37 - Cancel and Re-announce):**
 
-Per the [NVDA Developer Guide](https://download.nvaccess.org/documentation/developerGuide.html), use `event_NVDAObject_init` to modify object properties BEFORE NVDA caches them:
+After testing, `event_NVDAObject_init` does NOT work for UIA objects in PowerPoint - properties
+aren't available at init time. The working solution uses `event_gainFocus` with cancel-and-reannounce:
 
 ```python
-def event_NVDAObject_init(self, obj):
-    """Modify object name before NVDA caches it for announcement."""
+import speech
+
+def event_gainFocus(self, obj, nextHandler):
+    """Cancel default announcement and speak reformatted version."""
     uia_id = getattr(obj, 'UIAAutomationId', '') or ''
     name = getattr(obj, 'name', '') or ''
+    description = getattr(obj, 'description', '') or ''
 
     is_comment_card = (
         uia_id.startswith('cardRoot_') or
@@ -301,7 +306,6 @@ def event_NVDAObject_init(self, obj):
     )
 
     if is_comment_card:
-        description = getattr(obj, 'description', '') or ''
         is_resolved = name.startswith("Resolved ")
 
         # Extract author from "Comment thread started by Author"
@@ -313,15 +317,55 @@ def event_NVDAObject_init(self, obj):
                 author = author_part
 
             if author and description:
+                speech.cancelSpeech()  # Stop default announcement
                 if is_resolved:
-                    obj.name = f"Resolved - {author}: {description}"
+                    ui.message(f"Resolved - {author}: {description}")
                 else:
-                    obj.name = f"{author}: {description}"
+                    ui.message(f"{author}: {description}")
+                return  # Don't call nextHandler
+
+    nextHandler()
 ```
 
-**Why event_NVDAObject_init instead of event_gainFocus:**
-- `event_gainFocus` runs AFTER NVDA caches properties and queues announcement (too late)
-- `event_NVDAObject_init` runs DURING object creation, BEFORE caching (correct timing)
+**Why cancel-and-reannounce works:**
+1. `event_gainFocus` fires when comment gets focus
+2. `speech.cancelSpeech()` stops NVDA's queued verbose announcement
+3. `ui.message()` queues our concise reformatted message
+4. By returning early, we prevent default processing
+
+**Why event_NVDAObject_init failed (v0.0.36):**
+- `event_NVDAObject_init` is NOT called for UIA objects in PowerPoint
+- Properties like `UIAAutomationId` may not be available at object init time
+- Only works reliably for certain object types
+
+### Avoiding Speech Cutoff During Slide Navigation (v0.0.48)
+
+**Problem:** When using PageUp/PageDown in Comments pane to navigate slides, the slide title
+announcement (from worker thread) was being cut off by `speech.cancelSpeech()` in comment
+reformatting.
+
+**Solution:** Track navigation state with `_just_navigated` flag:
+
+```python
+# In PageUp/PageDown handler - set flag before navigation
+self._pending_auto_focus = True
+self._worker.request_navigate(direction)
+
+# When focus returns to comments pane after navigation
+if is_in_comments and getattr(self, '_pending_auto_focus', False):
+    self._pending_auto_focus = False
+    self._just_navigated = True  # Skip cancelSpeech for first comment
+
+# In comment reformatting - check flag before canceling speech
+if author and description:
+    if not getattr(self, '_just_navigated', False):
+        speech.cancelSpeech()  # Normal case - cancel verbose announcement
+    else:
+        self._just_navigated = False  # Clear flag, don't cancel (let title finish)
+    ui.message(formatted)
+```
+
+**Result:** User hears complete sequence: `"3: Market Analysis"` → `"Has 2 comments"` → `"Author: comment text"`
 
 **Comment Card Properties (from v0.0.32 research):**
 
@@ -588,6 +632,50 @@ print(f"Slide {slide_index} of {total_slides}")
 **References:**
 - [Shapes.Title property (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/PowerPoint.Shapes.Title)
 - [Shapes.HasTitle property (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/PowerPoint.Shapes.HasTitle)
+
+### Getting Slide Notes via COM (Python)
+
+Slide notes are accessed through the `NotesPage` property. The notes page contains multiple
+shapes - Placeholder(1) is the slide thumbnail, Placeholder(2) is the notes body text.
+
+```python
+import win32com.client
+
+ppt = win32com.client.Dispatch("PowerPoint.Application")
+window = ppt.ActiveWindow
+slide = window.View.Slide
+
+# Access notes via NotesPage
+notes_page = slide.NotesPage
+
+# Placeholder 2 is the notes body text
+placeholder = notes_page.Shapes.Placeholders(2)
+if placeholder.HasTextFrame:
+    text_frame = placeholder.TextFrame
+    if text_frame.HasText:
+        notes_text = text_frame.TextRange.Text.strip()
+        print(f"Notes: {notes_text}")
+else:
+    print("No notes on this slide")
+```
+
+**Key COM properties for slide notes access:**
+- `Slide.NotesPage` - Returns SlideRange representing the notes page
+- `NotesPage.Shapes.Placeholders(2)` - The notes body placeholder (index 2)
+- `Shape.HasTextFrame` - Boolean, True if shape contains text frame
+- `TextFrame.HasText` - Boolean, True if text frame has content
+- `TextFrame.TextRange.Text` - The actual notes text
+
+**NotesPage placeholder structure:**
+| Placeholder Index | Content |
+|-------------------|---------|
+| 1 | Slide thumbnail image |
+| 2 | Notes body text |
+
+**References:**
+- [Slide.NotesPage property (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.slide.notespage)
+- [TextFrame object (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.textframe)
+- [Shape.TextFrame property (PowerPoint)](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.shape.textframe)
 
 ---
 

@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.48"
+ADDON_VERSION = "0.0.49"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -204,6 +204,7 @@ class PowerPointWorker:
     v0.0.46: Use _pending_auto_focus flag for reliable auto-tab after slide navigation.
     v0.0.47: Announce slide number and title on PageUp/PageDown navigation.
     v0.0.48: Skip cancelSpeech after slide navigation to avoid cutting off title.
+    v0.0.49: Add slide notes detection and Ctrl+Alt+N shortcut to read notes.
     """
 
     # View type constants
@@ -227,6 +228,7 @@ class PowerPointWorker:
         self._current_window = None
         # v0.0.23: Queue for navigation requests from main thread
         self._nav_request = None  # Will be direction: 1 for next, -1 for previous
+        self._read_notes_request = False  # v0.0.49: Request to read slide notes
 
     def start(self):
         """Start the background thread."""
@@ -273,6 +275,14 @@ class PowerPointWorker:
         log.info(f"Worker: Navigation requested (direction={direction})")
         self._nav_request = direction
 
+    def request_read_notes(self):
+        """Request to read slide notes from main thread.
+
+        v0.0.49: Queues request for worker thread to read and announce notes.
+        """
+        log.info("Worker: Read notes requested")
+        self._read_notes_request = True
+
     def _run(self):
         """Main thread loop - runs in background."""
         # Initialize COM in STA mode (required for Office)
@@ -303,6 +313,11 @@ class PowerPointWorker:
                         direction = self._nav_request
                         self._nav_request = None  # Clear before processing
                         self._navigate_slide(direction)
+
+                    # v0.0.49: Check for read notes requests from main thread
+                    if self._read_notes_request:
+                        self._read_notes_request = False
+                        self._announce_slide_notes()
 
                 except Exception as e:
                     log.error(f"Worker thread error: {e}")
@@ -578,6 +593,55 @@ class PowerPointWorker:
             log.debug(f"Worker: Could not get slide title - {e}")
         return ""
 
+    def _get_slide_notes(self):
+        """Get the notes text for the current slide.
+
+        v0.0.49: Uses NotesPage.Shapes.Placeholders(2) to access notes text.
+        Placeholder(1) is slide thumbnail, Placeholder(2) is notes body.
+
+        Returns empty string if slide has no notes.
+
+        References:
+        - https://learn.microsoft.com/en-us/office/vba/api/powerpoint.slide.notespage
+        - https://learn.microsoft.com/en-us/office/vba/api/powerpoint.textframe
+        """
+        try:
+            window = self._get_window()
+            if window:
+                slide = window.View.Slide
+                notes_page = slide.NotesPage
+                # Placeholder 2 is the notes body text
+                placeholder = notes_page.Shapes.Placeholders(2)
+                if placeholder.HasTextFrame:
+                    text_frame = placeholder.TextFrame
+                    if text_frame.HasText:
+                        return text_frame.TextRange.Text.strip()
+        except Exception as e:
+            log.debug(f"Worker: Could not get slide notes - {e}")
+        return ""
+
+    def _has_slide_notes(self):
+        """Check if current slide has notes.
+
+        v0.0.49: Returns True if slide has non-empty notes text.
+        """
+        notes = self._get_slide_notes()
+        return bool(notes)
+
+    def _announce_slide_notes(self):
+        """Announce the notes text for current slide.
+
+        v0.0.49: Called via Ctrl+Alt+N keyboard shortcut.
+        Reads full notes text, or announces "No notes" if empty.
+        """
+        notes = self._get_slide_notes()
+        if notes:
+            self._announce(f"Notes: {notes}")
+            log.info(f"Worker: Announced notes ({len(notes)} chars)")
+        else:
+            self._announce("No notes on this slide")
+            log.info("Worker: No notes on slide")
+
     def _get_comments_on_current_slide(self):
         """Get all comments on current slide."""
         try:
@@ -612,7 +676,8 @@ class PowerPointWorker:
         """Announce slide info and comment status for current slide.
 
         v0.0.47: Announces slide number and title first, then comment count.
-        Format: "{slide_number}: {title}" then "Has X comments" or "No comments"
+        v0.0.49: Also announces "has notes" if slide has notes.
+        Format: "{slide_number}: {title}" then "Has X comments" or "No comments", then "has notes"
         """
         # v0.0.47: Announce slide number and title
         slide_index = self._get_current_slide_index()
@@ -640,6 +705,11 @@ class PowerPointWorker:
 
             # Open Comments pane for slides with comments
             self._open_comments_pane()
+
+        # v0.0.49: Announce if slide has notes
+        if self._has_slide_notes():
+            self._announce("has notes")
+            log.info("Worker: Slide has notes")
 
     def _is_comments_pane_visible(self):
         """Check if Comments pane is currently visible.
@@ -996,6 +1066,23 @@ class AppModule(AppModule):
         else:
             # Pass through to PowerPoint
             gesture.send()
+
+    @script(
+        gesture="kb:control+alt+n",
+        description="Read slide notes",
+        category="PowerPoint Comments"
+    )
+    def script_readSlideNotes(self, gesture):
+        """Read the notes for the current slide.
+
+        v0.0.49: Ctrl+Alt+N announces slide notes.
+        Works anywhere in PowerPoint (not just Comments pane).
+        """
+        if self._worker:
+            log.info("Ctrl+Alt+N pressed - requesting notes read")
+            self._worker.request_read_notes()
+        else:
+            ui.message("Notes not available")
 
     def terminate(self):
         """Clean up when PowerPoint closes or NVDA exits."""
