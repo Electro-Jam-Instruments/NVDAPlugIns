@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.26"
+ADDON_VERSION = "0.0.28"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -181,6 +181,8 @@ class PowerPointWorker:
     v0.0.24: Track Comments pane state to avoid redundant open/toggle calls.
     v0.0.25: Check actual pane visibility via GetPressedMso before calling ExecuteMso.
     v0.0.26: Remove session flag, rely only on GetPressedMso. Send F6 to focus Comments pane.
+    v0.0.27: Add UIA diagnostic logging to find stable identifiers for Comments pane focus.
+    v0.0.28: Replace F6 with parent chain walk to verify focus in Comments pane.
     """
 
     # View type constants
@@ -633,26 +635,53 @@ class PowerPointWorker:
         return False
 
     def _request_focus_comments_pane(self):
-        """Send F6 to focus the Comments pane.
+        """Verify focus is in Comments pane by walking up parent chain.
 
-        v0.0.26: F6 is the PowerPoint keyboard shortcut to cycle through panes,
-        which will move focus to the Comments pane when it's open.
-        Uses queueFunction to send keypress from main thread.
+        v0.0.28: After ExecuteMso opens the Comments pane, focus lands on the
+        "New" button inside the pane. We walk UP the parent chain to verify
+        we're in the Comments pane (identified by windowClassName='NetUIHWNDElement'
+        and name containing 'comment').
+
+        This is efficient because:
+        - Walking UP uses cached parent references NVDA already maintains
+        - No child tree search needed (expensive)
+        - No TreeWalker (very expensive)
+        - Stops as soon as we find the pane
         """
-        log.info("Worker: Queuing F6 to focus Comments pane")
+        log.info("Worker: Queuing Comments pane focus verification")
 
-        def send_f6():
-            """Send F6 keypress on main thread."""
+        def do_focus():
+            """Walk parent chain to verify focus is in Comments pane (runs on main thread)."""
             try:
-                import winUser
-                VK_F6 = 0x75
-                winUser.keybd_event(VK_F6, 0, 0, 0)  # keydown
-                winUser.keybd_event(VK_F6, 0, 2, 0)  # keyup (KEYEVENTF_KEYUP = 2)
-                log.info("Worker: Sent F6 to focus Comments pane")
-            except Exception as e:
-                log.error(f"Worker: Failed to send F6 - {e}")
+                focus = api.getFocusObject()
+                if not focus:
+                    log.warning("No focus object - cannot verify Comments pane")
+                    return
 
-        queueFunction(eventQueue, send_f6)
+                # Walk UP the parent chain to find Comments pane
+                obj = focus
+                depth = 0
+                max_depth = 10
+
+                while obj and depth < max_depth:
+                    name = (getattr(obj, 'name', '') or '').lower()
+                    window_class = getattr(obj, 'windowClassName', '') or ''
+
+                    if 'comment' in name and window_class == 'NetUIHWNDElement':
+                        # Found the Comments pane - focus is already inside it
+                        log.info(f"Comments pane found at depth {depth}: '{obj.name}'")
+                        return
+
+                    obj = getattr(obj, 'parent', None)
+                    depth += 1
+
+                # Pane not found in parent chain
+                log.warning("Comments pane not found in parent chain - focus may not have landed there yet")
+
+            except Exception as e:
+                log.error(f"Comments pane focus verification failed: {e}")
+
+        queueFunction(eventQueue, do_focus)
 
     def _navigate_slide(self, direction):
         """Navigate to next or previous slide (runs on worker thread).
