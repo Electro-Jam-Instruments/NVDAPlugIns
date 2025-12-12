@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.55"
+ADDON_VERSION = "0.0.56"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -68,6 +68,20 @@ class EApplication(IDispatch):
             None,
             "WindowSelectionChange",
             (["in"], ctypes.POINTER(IDispatch), "sel"),
+        ),
+        # SlideShowBegin (DISPID 2010) - fires when slideshow starts
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2010)],
+            None,
+            "SlideShowBegin",
+            (["in"], ctypes.POINTER(IDispatch), "wn"),
+        ),
+        # SlideShowEnd (DISPID 2012) - fires when slideshow ends
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2012)],
+            None,
+            "SlideShowEnd",
+            (["in"], ctypes.POINTER(IDispatch), "pres"),
         ),
         # SlideShowNextSlide (DISPID 2013) - fires during slideshow
         comtypes.DISPMETHOD(
@@ -139,6 +153,36 @@ class PowerPointEventSink(COMObject):
         except Exception as e:
             log.error(f"PowerPointEventSink: Error in WindowSelectionChange - {e}")
 
+    def SlideShowBegin(self, wn):
+        """Called when slideshow starts.
+
+        v0.0.56: Track slideshow state to modify announcements.
+
+        Args:
+            wn: SlideShowWindow object (IDispatch)
+        """
+        try:
+            log.info("PowerPointEventSink: SlideShowBegin event received")
+            if self._worker:
+                self._worker.on_slideshow_begin(wn)
+        except Exception as e:
+            log.error(f"PowerPointEventSink: Error in SlideShowBegin - {e}")
+
+    def SlideShowEnd(self, pres):
+        """Called when slideshow ends.
+
+        v0.0.56: Track slideshow state to modify announcements.
+
+        Args:
+            pres: Presentation object (IDispatch)
+        """
+        try:
+            log.info("PowerPointEventSink: SlideShowEnd event received")
+            if self._worker:
+                self._worker.on_slideshow_end(pres)
+        except Exception as e:
+            log.error(f"PowerPointEventSink: Error in SlideShowEnd - {e}")
+
     def SlideShowNextSlide(self, slideShowWindow):
         """Called when slide advances in slideshow mode.
 
@@ -154,7 +198,8 @@ class PowerPointEventSink(COMObject):
                     if slide_index != self._last_slide_index:
                         log.info(f"PowerPointEventSink: Slideshow slide changed to {slide_index}")
                         self._last_slide_index = slide_index
-                        self._worker.on_slide_changed_event(slide_index)
+                        # v0.0.56: Pass slideshow window for notes access
+                        self._worker.on_slideshow_slide_changed(slide_index, slideShowWindow)
                 except Exception as e:
                     log.debug(f"PowerPointEventSink: Could not get slideshow slide - {e}")
         except Exception as e:
@@ -211,6 +256,7 @@ class PowerPointWorker:
     v0.0.53: Extract only text BETWEEN **** markers, ignore text before/after.
     v0.0.54: Don't announce slide when NVDA starts with PowerPoint not focused.
     v0.0.55: Add detailed UIA logging for comment types (resolved, removed, status).
+    v0.0.56: Slideshow mode - skip comment announcements, keep meeting notes; simplify reply/task status.
     """
 
     # View type constants
@@ -237,6 +283,8 @@ class PowerPointWorker:
         self._read_notes_request = False  # v0.0.49: Request to read slide notes
         self._from_comments_navigation = False  # v0.0.50: Track if nav from Comments pane
         self._has_received_focus = False  # v0.0.54: Track if app has received focus
+        self._in_slideshow = False  # v0.0.56: Track if in presentation mode
+        self._slideshow_window = None  # v0.0.56: Store slideshow window for notes access
 
     def start(self):
         """Start the background thread."""
@@ -526,6 +574,56 @@ class PowerPointWorker:
         # Announce comments on new slide
         self._announce_slide_comments()
 
+    def on_slideshow_begin(self, wn):
+        """Called when slideshow starts.
+
+        v0.0.56: Track slideshow state to suppress comment announcements.
+
+        Args:
+            wn: SlideShowWindow object (IDispatch)
+        """
+        log.info("Worker: Slideshow started - entering presentation mode")
+        self._in_slideshow = True
+        self._slideshow_window = wn
+
+    def on_slideshow_end(self, pres):
+        """Called when slideshow ends.
+
+        v0.0.56: Reset slideshow state.
+
+        Args:
+            pres: Presentation object (IDispatch)
+        """
+        log.info("Worker: Slideshow ended - exiting presentation mode")
+        self._in_slideshow = False
+        self._slideshow_window = None
+
+    def on_slideshow_slide_changed(self, slide_index, slideshow_window):
+        """Called when slide changes during slideshow.
+
+        v0.0.56: During slideshow, only announce meeting notes status (not comments).
+
+        Args:
+            slide_index: New slide index (1-based)
+            slideshow_window: SlideShowWindow object for notes access
+        """
+        log.info(f"Worker: Slideshow slide changed to {slide_index}")
+
+        # Store slideshow window for notes access
+        self._slideshow_window = slideshow_window
+
+        # Avoid duplicate announcements
+        if slide_index == self._last_announced_slide:
+            log.debug(f"Worker: Ignoring duplicate slideshow slide {slide_index}")
+            return
+
+        self._last_announced_slide = slide_index
+
+        # v0.0.56: During slideshow, only announce meeting notes (not comments)
+        if self._has_meeting_notes():
+            self._announce("has meeting notes")
+            log.info("Worker: Slideshow slide has meeting notes")
+
     def _has_active_presentation(self):
         """Check if there's an active presentation open."""
         try:
@@ -618,6 +716,7 @@ class PowerPointWorker:
 
         v0.0.49: Uses NotesPage.Shapes.Placeholders(2) to access notes text.
         Placeholder(1) is slide thumbnail, Placeholder(2) is notes body.
+        v0.0.56: Uses SlideShowWindow when in presentation mode for proper sync.
 
         Returns empty string if slide has no notes.
 
@@ -626,9 +725,24 @@ class PowerPointWorker:
         - https://learn.microsoft.com/en-us/office/vba/api/powerpoint.textframe
         """
         try:
-            window = self._get_window()
-            if window:
-                slide = window.View.Slide
+            slide = None
+
+            # v0.0.56: Use SlideShowWindow when in presentation mode
+            if self._in_slideshow and self._slideshow_window:
+                try:
+                    slide = self._slideshow_window.View.Slide
+                    log.debug("Worker: Getting notes from SlideShowWindow")
+                except Exception as e:
+                    log.debug(f"Worker: Could not get slide from SlideShowWindow - {e}")
+
+            # Fall back to normal window
+            if not slide:
+                window = self._get_window()
+                if window:
+                    slide = window.View.Slide
+                    log.debug("Worker: Getting notes from normal window")
+
+            if slide:
                 notes_page = slide.NotesPage
                 # Placeholder 2 is the notes body text
                 placeholder = notes_page.Shapes.Placeholders(2)
@@ -735,8 +849,15 @@ class PowerPointWorker:
         v0.0.47: Announces slide number and title first, then comment count.
         v0.0.49: Also announces "has notes" if slide has notes.
         v0.0.50: Only announce slide title if navigated from Comments pane (avoid double).
+        v0.0.56: Skip comment announcements during slideshow (but keep meeting notes).
         Format: "{slide_number}: {title}" then "Has X comments" or "No comments", then "has notes"
         """
+        # v0.0.56: Skip comment announcements during slideshow
+        # (slideshow mode handles its own meeting notes announcement)
+        if self._in_slideshow:
+            log.info("Worker: Skipping comment announcements - in slideshow mode")
+            return
+
         # v0.0.50: Only announce slide title if navigated from Comments pane
         # NVDA's built-in PowerPoint module already announces slide on normal navigation
         if self._from_comments_navigation:
@@ -1055,11 +1176,21 @@ class AppModule(AppModule):
                     return
 
             elif is_reply_comment:
-                # Reply format: "Comment by Author on Month Day, Year, Time"
-                # Extract just the author name
+                # v0.0.56: Handle multiple reply/status formats:
+                # - "Comment by Author on Month Day, Year, Time" -> "Author: description"
+                # - "Task updated by Author on Month Day, Year, Time" -> "Author - description"
                 author = ""
-                if name_normalized.startswith("Comment by "):
-                    # Remove "Comment by " prefix and extract author before " on "
+                is_task_status = False
+
+                if name_normalized.startswith("Task updated by "):
+                    # Task status update: "Task updated by Author on ..."
+                    # Description will be "Completed a task" or "Reopened a task"
+                    after_prefix = name_normalized[16:]  # Skip "Task updated by "
+                    if " on " in after_prefix:
+                        author = after_prefix.split(" on ", 1)[0]
+                    is_task_status = True
+                elif name_normalized.startswith("Comment by "):
+                    # Regular reply: "Comment by Author on ..."
                     after_prefix = name_normalized[11:]  # Skip "Comment by "
                     if " on " in after_prefix:
                         author = after_prefix.split(" on ", 1)[0]
@@ -1071,9 +1202,18 @@ class AppModule(AppModule):
                     else:
                         self._just_navigated = False  # Clear flag after use
                         log.info("Skipped cancelSpeech - letting slide title finish")
-                    formatted = f"Reply - {author}: {description}"
+
+                    # v0.0.56: Format based on type
+                    if is_task_status:
+                        # Task status: "Author - Completed task" or "Author - Reopened task"
+                        status_text = description.replace(" a task", " task")
+                        formatted = f"{author} - {status_text}"
+                    else:
+                        # Regular reply: just "Author: description" (no "Reply -" prefix)
+                        formatted = f"{author}: {description}"
+
                     ui.message(formatted)
-                    log.info(f"Reply reformatted: {formatted[:80]}")
+                    log.info(f"Reply/Status reformatted: {formatted[:80]}")
                     return
 
         except Exception as e:
