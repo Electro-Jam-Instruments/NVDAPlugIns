@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.58"
+ADDON_VERSION = "0.0.59"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -259,6 +259,7 @@ class PowerPointWorker:
     v0.0.56: Slideshow mode - skip comment announcements, keep meeting notes; simplify reply/task status.
     v0.0.57: Debug logging for false "has meeting notes" during slideshow; fix premature SlideShowEnd.
     v0.0.58: Fix stuck slideshow state - use COM SlideShowWindows.Count instead of unreliable events.
+    v0.0.59: Change "has meeting notes" to "has notes"; notes announced first in slideshow.
     """
 
     # View type constants
@@ -627,8 +628,8 @@ class PowerPointWorker:
 
         # v0.0.56: During slideshow, only announce meeting notes (not comments)
         if self._has_meeting_notes():
-            self._announce("has meeting notes")
-            log.info("Worker: Slideshow slide has meeting notes")
+            self._announce("has notes")
+            log.info("Worker: Slideshow slide has notes")
 
     def _has_active_presentation(self):
         """Check if there's an active presentation open."""
@@ -845,8 +846,8 @@ class PowerPointWorker:
             self._announce(cleaned)
             log.info(f"Worker: Announced meeting notes ({len(cleaned)} chars)")
         else:
-            self._announce("No meeting notes")
-            log.info("Worker: No meeting notes on slide")
+            self._announce("No notes")
+            log.info("Worker: No notes on slide")
 
     def _get_comments_on_current_slide(self):
         """Get all comments on current slide."""
@@ -935,8 +936,8 @@ class PowerPointWorker:
         # v0.0.49: Announce if slide has meeting notes
         # v0.0.52: Only announce for notes with **** markers (meeting notes)
         if self._has_meeting_notes():
-            self._announce("has meeting notes")
-            log.info("Worker: Slide has meeting notes")
+            self._announce("has notes")
+            log.info("Worker: Slide has notes")
 
     def _is_comments_pane_visible(self):
         """Check if Comments pane is currently visible.
