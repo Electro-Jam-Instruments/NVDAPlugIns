@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.57"
+ADDON_VERSION = "0.0.58"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -258,6 +258,7 @@ class PowerPointWorker:
     v0.0.55: Add detailed UIA logging for comment types (resolved, removed, status).
     v0.0.56: Slideshow mode - skip comment announcements, keep meeting notes; simplify reply/task status.
     v0.0.57: Debug logging for false "has meeting notes" during slideshow; fix premature SlideShowEnd.
+    v0.0.58: Fix stuck slideshow state - use COM SlideShowWindows.Count instead of unreliable events.
     """
 
     # View type constants
@@ -641,6 +642,21 @@ class PowerPointWorker:
             log.debug(f"No active presentation: {e}")
             return False
 
+    def _is_slideshow_running(self):
+        """Check if a slideshow is actually running using COM.
+
+        v0.0.58: Use SlideShowWindows.Count to verify slideshow state,
+        rather than relying on potentially unreliable events.
+        """
+        try:
+            if self._ppt_app:
+                count = self._ppt_app.SlideShowWindows.Count
+                log.debug(f"Worker: SlideShowWindows.Count = {count}")
+                return count > 0
+        except Exception as e:
+            log.debug(f"Worker: Could not check slideshow state - {e}")
+        return False
+
     def _get_window(self):
         """Get the current window (v0.0.22: prefer stored window over ActiveWindow)."""
         if self._current_window:
@@ -869,11 +885,19 @@ class PowerPointWorker:
         v0.0.49: Also announces "has notes" if slide has notes.
         v0.0.50: Only announce slide title if navigated from Comments pane (avoid double).
         v0.0.56: Skip comment announcements during slideshow (but keep meeting notes).
+        v0.0.58: Use COM check instead of _in_slideshow flag (events unreliable).
         Format: "{slide_number}: {title}" then "Has X comments" or "No comments", then "has notes"
         """
-        # v0.0.56: Skip comment announcements during slideshow
-        # (slideshow mode handles its own meeting notes announcement)
-        if self._in_slideshow:
+        # v0.0.58: Check actual slideshow state via COM, not unreliable event flag
+        # Events can fire out of order or get stuck
+        actually_in_slideshow = self._is_slideshow_running()
+        if actually_in_slideshow != self._in_slideshow:
+            log.info(f"Worker: Fixing slideshow state mismatch - flag={self._in_slideshow}, actual={actually_in_slideshow}")
+            self._in_slideshow = actually_in_slideshow
+            if not actually_in_slideshow:
+                self._slideshow_window = None
+
+        if actually_in_slideshow:
             log.info("Worker: Skipping comment announcements - in slideshow mode")
             return
 
