@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.53"
+ADDON_VERSION = "0.0.54"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -209,6 +209,7 @@ class PowerPointWorker:
     v0.0.51: Remove "Notes:" prefix; shorten "No notes on this slide" to "No notes".
     v0.0.52: Only detect/read notes with **** markers (meeting notes).
     v0.0.53: Extract only text BETWEEN **** markers, ignore text before/after.
+    v0.0.54: Don't announce slide when NVDA starts with PowerPoint not focused.
     """
 
     # View type constants
@@ -234,6 +235,7 @@ class PowerPointWorker:
         self._nav_request = None  # Will be direction: 1 for next, -1 for previous
         self._read_notes_request = False  # v0.0.49: Request to read slide notes
         self._from_comments_navigation = False  # v0.0.50: Track if nav from Comments pane
+        self._has_received_focus = False  # v0.0.54: Track if app has received focus
 
     def start(self):
         """Start the background thread."""
@@ -264,8 +266,10 @@ class PowerPointWorker:
 
         This is called from event_appModule_gainFocus.
         Sets a flag that the worker thread will pick up.
+        v0.0.54: Also sets _has_received_focus to enable initial slide announcement.
         """
-        log.info("Worker: Initialize requested")
+        log.info("Worker: Initialize requested (app has focus)")
+        self._has_received_focus = True  # v0.0.54: App has focus, ok to announce
         self._initialized = False  # Force re-initialization
 
     def request_navigate(self, direction, from_comments_pane=False):
@@ -468,8 +472,15 @@ class PowerPointWorker:
 
         v0.0.23: Skip if we already announced this slide (prevents double
         announcements on reinit after focus regained).
+        v0.0.54: Only announce if app has received focus (prevents announcement
+        when NVDA starts with PowerPoint open but not focused).
         """
         try:
+            # v0.0.54: Don't announce if app hasn't received focus yet
+            if not self._has_received_focus:
+                log.info("Worker: Skipping initial slide announcement - app not focused yet")
+                return
+
             current_index = self._get_current_slide_index()
             if current_index > 0:
                 log.info(f"Worker: Initial slide is {current_index}, last announced was {self._last_announced_slide}")
