@@ -1098,5 +1098,186 @@ class PowerPointTableHandler:
 
 ---
 
+## 9. Presentation Mode (SlideShow) Detection and Notes Access
+
+*Added: 2025-12-12*
+
+### 9.1 Detecting Presentation Mode
+
+**Method 1: Check SlideShowWindows.Count**
+```python
+def is_in_slideshow(app):
+    """Check if any slideshow is currently running."""
+    try:
+        return app.SlideShowWindows.Count > 0
+    except:
+        return False
+```
+
+**Method 2: Use COM Events**
+
+PowerPoint provides three key events for slideshow state tracking:
+
+| Event | DISPID | Fires When | Parameter |
+|-------|--------|------------|-----------|
+| SlideShowBegin | 2010 | Slideshow starts | SlideShowWindow |
+| SlideShowNextSlide | 2013 | Slide advances | SlideShowWindow |
+| SlideShowEnd | 2012 | Slideshow ends | Presentation |
+
+### 9.2 SlideShowWindow Object
+
+The `SlideShowWindow` object represents the window in which a slideshow runs.
+
+**Key Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| View | SlideShowView | Returns the view object for navigation/slide access |
+| Presentation | Presentation | Returns the presentation being shown |
+| IsFullScreen | Boolean | Whether slideshow is full-screen |
+
+**Key Methods:**
+
+| Method | Description |
+|--------|-------------|
+| Activate | Activates the slideshow window |
+
+### 9.3 SlideShowView Object
+
+The `SlideShowView` object represents the view within a slideshow window.
+
+**Key Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| Slide | Slide | Current slide being displayed |
+| CurrentShowPosition | Integer | Current position in slideshow (1-based) |
+| State | PpSlideShowState | Current state (running, paused, etc.) |
+| PointerType | PpSlideShowPointerType | Current pointer type |
+
+**Key Methods:**
+
+| Method | Description |
+|--------|-------------|
+| First | Go to first slide |
+| Last | Go to last slide |
+| Next | Advance to next slide |
+| Previous | Go to previous slide |
+| GotoSlide(index) | Jump to specific slide |
+| Exit | End the slideshow |
+
+### 9.4 Accessing Notes During Presentation
+
+Notes can be accessed during a slideshow through the Slide object:
+
+```python
+def get_slideshow_notes(app):
+    """Get notes for current slide during slideshow."""
+    try:
+        if app.SlideShowWindows.Count > 0:
+            slideshow_window = app.SlideShowWindows(1)
+            current_slide = slideshow_window.View.Slide
+
+            # Access notes via NotesPage.Shapes.Placeholders(2)
+            notes_text = current_slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text
+            return notes_text.strip()
+    except Exception as e:
+        return ""
+    return ""
+```
+
+**Important Notes:**
+- `NotesPage.Shapes.Placeholders(2)` contains the notes text placeholder
+- Same access pattern works in both Normal view and Slideshow mode
+- Notes are read-only during slideshow
+
+### 9.5 SlideShowNextSlide Event Timing
+
+**Critical:** The `SlideShowNextSlide` event fires *immediately before* the transition to the next slide. This means:
+
+```python
+def SlideShowNextSlide(self, slideShowWindow):
+    # At this point, we're still on the CURRENT slide
+    current_position = slideShowWindow.View.CurrentShowPosition
+
+    # The NEXT slide will be at position + 1
+    next_position = current_position + 1
+
+    # To get the next slide's info, access the presentation
+    next_slide = slideShowWindow.Presentation.Slides(next_position)
+```
+
+For the first slide, `SlideShowNextSlide` fires immediately after `SlideShowBegin`.
+
+### 9.6 Recommended Implementation for NVDA
+
+```python
+class EApplication(IDispatch):
+    """PowerPoint event interface with slideshow events."""
+    _iid_ = GUID("{914934C2-5A91-11CF-8700-00AA0060263B}")
+    _methods_ = []
+    _disp_methods_ = [
+        # Existing events...
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2010)],
+            None,
+            "SlideShowBegin",
+            (["in"], ctypes.POINTER(IDispatch), "wn"),
+        ),
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2012)],
+            None,
+            "SlideShowEnd",
+            (["in"], ctypes.POINTER(IDispatch), "pres"),
+        ),
+        comtypes.DISPMETHOD(
+            [comtypes.dispid(2013)],
+            None,
+            "SlideShowNextSlide",
+            (["in"], ctypes.POINTER(IDispatch), "wn"),
+        ),
+    ]
+
+class PowerPointEventSink(COMObject):
+    def __init__(self, worker):
+        self._worker = worker
+        self._in_slideshow = False
+
+    def SlideShowBegin(self, wn):
+        """Called when slideshow starts."""
+        self._in_slideshow = True
+        self._worker.on_slideshow_begin(wn)
+
+    def SlideShowEnd(self, pres):
+        """Called when slideshow ends."""
+        self._in_slideshow = False
+        self._worker.on_slideshow_end(pres)
+
+    def SlideShowNextSlide(self, wn):
+        """Called on each slide advance during slideshow."""
+        if self._in_slideshow:
+            self._worker.on_slideshow_slide_changed(wn)
+```
+
+### 9.7 Presenter View Considerations
+
+When using Presenter View:
+- Two windows exist: audience view (SlideShowWindow) and presenter view
+- `SlideShowWindows(1)` returns the main slideshow window
+- Notes are visible in presenter view but still accessible via COM
+- Ctrl+Alt+N shortcut should work to read notes aloud
+
+### 9.8 References
+
+- [SlideShowWindow object](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.slideshowwindow)
+- [SlideShowView object](https://learn.microsoft.com/en-us/office/vba/api/PowerPoint.SlideShowView)
+- [SlideShowNextSlide event](https://learn.microsoft.com/en-us/office/vba/api/PowerPoint.Application.SlideShowNextSlide)
+- [SlideShowBegin event](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.application.slideshowbegin)
+- [SlideShowEnd event](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.application.slideshowend)
+- [Slide.NotesPage property](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.slide.notespage)
+
+---
+
 *Document generated: 2025-12-03*
+*Updated: 2025-12-12 - Added Presentation Mode research*
 *Research conducted for: NVDA PowerPoint Accessibility Plugin Development*

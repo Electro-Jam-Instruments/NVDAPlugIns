@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.54"
+ADDON_VERSION = "0.0.55"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -210,6 +210,7 @@ class PowerPointWorker:
     v0.0.52: Only detect/read notes with **** markers (meeting notes).
     v0.0.53: Extract only text BETWEEN **** markers, ignore text before/after.
     v0.0.54: Don't announce slide when NVDA starts with PowerPoint not focused.
+    v0.0.55: Add detailed UIA logging for comment types (resolved, removed, status).
     """
 
     # View type constants
@@ -935,9 +936,45 @@ class AppModule(AppModule):
             uia_id = getattr(obj, 'UIAAutomationId', '') or ''
             name = getattr(obj, 'name', '') or ''
             description = getattr(obj, 'description', '') or ''
+            role = getattr(obj, 'role', None)
+            role_name = getattr(obj, 'roleText', '') or ''
+            states = getattr(obj, 'states', set()) or set()
 
             # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
             name_normalized = re.sub(r'\s+', ' ', name)
+
+            # v0.0.55: Detailed UIA logging for comment types (resolved, removed, status changes)
+            # Log all comment-related elements for research purposes
+            is_comment_element = (
+                uia_id.startswith('cardRoot_') or
+                uia_id.startswith('postRoot_') or
+                uia_id == 'NewCommentButton' or
+                uia_id == 'CommentsList' or
+                'comment' in uia_id.lower() or
+                'comment' in name.lower() or
+                'resolved' in name.lower() or
+                'removed' in name.lower()
+            )
+            if is_comment_element:
+                log.info(f"=== UIA COMMENT ELEMENT ===")
+                log.info(f"  UIAAutomationId: {uia_id}")
+                log.info(f"  Name: {name[:200] if name else '(empty)'}")
+                log.info(f"  Name normalized: {name_normalized[:200] if name_normalized else '(empty)'}")
+                log.info(f"  Description: {description[:200] if description else '(empty)'}")
+                log.info(f"  Role: {role} ({role_name})")
+                log.info(f"  States: {states}")
+                # Log additional UIA properties if available
+                try:
+                    class_name = getattr(obj, 'UIAClassName', '') or ''
+                    log.info(f"  ClassName: {class_name}")
+                except:
+                    pass
+                try:
+                    control_type = getattr(obj, 'UIAControlType', '') or ''
+                    log.info(f"  ControlType: {control_type}")
+                except:
+                    pass
+                log.info(f"=== END UIA COMMENT ELEMENT ===")
 
             # Detect if we're in the Comments pane (NewCommentButton, cardRoot_, or postRoot_)
             is_in_comments = (
