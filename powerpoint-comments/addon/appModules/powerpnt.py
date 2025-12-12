@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.56"
+ADDON_VERSION = "0.0.57"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -257,6 +257,7 @@ class PowerPointWorker:
     v0.0.54: Don't announce slide when NVDA starts with PowerPoint not focused.
     v0.0.55: Add detailed UIA logging for comment types (resolved, removed, status).
     v0.0.56: Slideshow mode - skip comment announcements, keep meeting notes; simplify reply/task status.
+    v0.0.57: Debug logging for false "has meeting notes" during slideshow; fix premature SlideShowEnd.
     """
 
     # View type constants
@@ -590,13 +591,17 @@ class PowerPointWorker:
         """Called when slideshow ends.
 
         v0.0.56: Reset slideshow state.
+        v0.0.57: Only reset if we were actually in slideshow mode (avoid false events).
 
         Args:
             pres: Presentation object (IDispatch)
         """
-        log.info("Worker: Slideshow ended - exiting presentation mode")
-        self._in_slideshow = False
-        self._slideshow_window = None
+        if self._in_slideshow:
+            log.info("Worker: Slideshow ended - exiting presentation mode")
+            self._in_slideshow = False
+            self._slideshow_window = None
+        else:
+            log.debug("Worker: SlideShowEnd received but not in slideshow mode - ignoring")
 
     def on_slideshow_slide_changed(self, slide_index, slideshow_window):
         """Called when slide changes during slideshow.
@@ -717,6 +722,7 @@ class PowerPointWorker:
         v0.0.49: Uses NotesPage.Shapes.Placeholders(2) to access notes text.
         Placeholder(1) is slide thumbnail, Placeholder(2) is notes body.
         v0.0.56: Uses SlideShowWindow when in presentation mode for proper sync.
+        v0.0.57: Added debug logging for slide index to diagnose sync issues.
 
         Returns empty string if slide has no notes.
 
@@ -726,12 +732,14 @@ class PowerPointWorker:
         """
         try:
             slide = None
+            source = "unknown"
 
             # v0.0.56: Use SlideShowWindow when in presentation mode
             if self._in_slideshow and self._slideshow_window:
                 try:
                     slide = self._slideshow_window.View.Slide
-                    log.debug("Worker: Getting notes from SlideShowWindow")
+                    source = "SlideShowWindow"
+                    log.debug(f"Worker: Getting notes from SlideShowWindow (slide {slide.SlideIndex})")
                 except Exception as e:
                     log.debug(f"Worker: Could not get slide from SlideShowWindow - {e}")
 
@@ -740,16 +748,21 @@ class PowerPointWorker:
                 window = self._get_window()
                 if window:
                     slide = window.View.Slide
-                    log.debug("Worker: Getting notes from normal window")
+                    source = "normal window"
+                    log.debug(f"Worker: Getting notes from normal window (slide {slide.SlideIndex})")
 
             if slide:
+                slide_idx = slide.SlideIndex
                 notes_page = slide.NotesPage
                 # Placeholder 2 is the notes body text
                 placeholder = notes_page.Shapes.Placeholders(2)
                 if placeholder.HasTextFrame:
                     text_frame = placeholder.TextFrame
                     if text_frame.HasText:
-                        return text_frame.TextRange.Text.strip()
+                        notes_text = text_frame.TextRange.Text.strip()
+                        log.debug(f"Worker: Got notes for slide {slide_idx} from {source} ({len(notes_text)} chars)")
+                        return notes_text
+                log.debug(f"Worker: No notes text for slide {slide_idx} from {source}")
         except Exception as e:
             log.debug(f"Worker: Could not get slide notes - {e}")
         return ""
@@ -760,12 +773,18 @@ class PowerPointWorker:
         v0.0.49: Returns True if slide has non-empty notes text.
         v0.0.52: Only returns True if notes contain **** markers (meeting notes).
         Regular notes without markers are ignored.
+        v0.0.57: Added debug logging to diagnose false positives.
         """
         notes = self._get_slide_notes()
+        has_markers = '****' in notes if notes else False
+        log.debug(f"Worker: _has_meeting_notes check - in_slideshow={self._in_slideshow}, "
+                  f"notes_length={len(notes) if notes else 0}, has_markers={has_markers}")
+        if notes:
+            log.debug(f"Worker: Notes preview: {notes[:100]}...")
         if not notes:
             return False
         # Only consider notes with **** markers as "meeting notes"
-        return '****' in notes
+        return has_markers
 
     def _clean_notes_text(self, notes):
         """Extract meeting notes content between **** markers.
