@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.65"
+ADDON_VERSION = "0.0.66"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -266,6 +266,7 @@ class PowerPointWorker:
     v0.0.63: Fix notes detection in slideshow - use self.currentSlide directly instead of worker thread.
     v0.0.64: Fix NotesPage access - use currentSlide.Parent.NotesPage for slideshow slide objects.
     v0.0.65: Add diagnostics to discover actual currentSlide object type and properties during slideshow.
+    v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint Slide COM object (not NVDA wrapper).
     """
 
     # View type constants
@@ -1100,34 +1101,26 @@ class CustomSlideShowWindow(SlideShowWindow):
         v0.0.63: Use self.currentSlide directly instead of worker thread.
         v0.0.64: Access NotesPage via Parent.NotesPage (slideshow slide is different type).
         v0.0.65: Add diagnostics to discover actual object type and properties.
+        v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint COM object.
 
-        During slideshow, self.currentSlide is a SlideShowView.Slide object, not a regular
-        Slide object. We need to access the underlying Slide via its Parent property.
+        self.currentSlide is an NVDA wrapper object. We need the actual PowerPoint COM Slide
+        object which is accessed via self.View.Slide (same pattern as worker thread).
 
         Returns:
             bool: True if slide has notes with **** markers
         """
         try:
-            if not self.currentSlide:
-                log.debug("CustomSlideShowWindow: No currentSlide available")
+            # Access PowerPoint COM object via View property
+            # self.View is the SlideShowView COM object
+            # self.View.Slide is the actual PowerPoint Slide COM object
+            if not hasattr(self, 'View') or not self.View:
+                log.debug("CustomSlideShowWindow: No View available")
                 return False
 
-            # Diagnostic: Log object type and available properties
-            current_type = type(self.currentSlide).__name__
-            log.info(f"CustomSlideShowWindow: currentSlide type = {current_type}")
+            slide = self.View.Slide
+            log.info(f"CustomSlideShowWindow: Accessing slide {slide.SlideIndex} via View.Slide")
 
-            # List available attributes
-            attrs = [attr for attr in dir(self.currentSlide) if not attr.startswith('_')]
-            log.info(f"CustomSlideShowWindow: Available attributes = {attrs[:20]}")  # First 20 to avoid spam
-
-            # Try to access slide index first (always available)
-            if hasattr(self.currentSlide, 'SlideIndex'):
-                slide_idx = self.currentSlide.SlideIndex
-                log.info(f"CustomSlideShowWindow: SlideIndex = {slide_idx}")
-
-            # During slideshow, currentSlide.Parent gives us the actual Slide object
-            # which has the NotesPage property
-            slide = self.currentSlide.Parent
+            # Access notes page
             notes_page = slide.NotesPage
             placeholder = notes_page.Shapes.Placeholders(2)
 
