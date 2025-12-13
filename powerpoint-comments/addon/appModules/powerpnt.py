@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.64"
+ADDON_VERSION = "0.0.65"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -265,6 +265,7 @@ class PowerPointWorker:
     v0.0.62: Add reportFocus() override and extensive diagnostics - debug why custom class not instantiated.
     v0.0.63: Fix notes detection in slideshow - use self.currentSlide directly instead of worker thread.
     v0.0.64: Fix NotesPage access - use currentSlide.Parent.NotesPage for slideshow slide objects.
+    v0.0.65: Add diagnostics to discover actual currentSlide object type and properties during slideshow.
     """
 
     # View type constants
@@ -1098,6 +1099,7 @@ class CustomSlideShowWindow(SlideShowWindow):
 
         v0.0.63: Use self.currentSlide directly instead of worker thread.
         v0.0.64: Access NotesPage via Parent.NotesPage (slideshow slide is different type).
+        v0.0.65: Add diagnostics to discover actual object type and properties.
 
         During slideshow, self.currentSlide is a SlideShowView.Slide object, not a regular
         Slide object. We need to access the underlying Slide via its Parent property.
@@ -1109,6 +1111,19 @@ class CustomSlideShowWindow(SlideShowWindow):
             if not self.currentSlide:
                 log.debug("CustomSlideShowWindow: No currentSlide available")
                 return False
+
+            # Diagnostic: Log object type and available properties
+            current_type = type(self.currentSlide).__name__
+            log.info(f"CustomSlideShowWindow: currentSlide type = {current_type}")
+
+            # List available attributes
+            attrs = [attr for attr in dir(self.currentSlide) if not attr.startswith('_')]
+            log.info(f"CustomSlideShowWindow: Available attributes = {attrs[:20]}")  # First 20 to avoid spam
+
+            # Try to access slide index first (always available)
+            if hasattr(self.currentSlide, 'SlideIndex'):
+                slide_idx = self.currentSlide.SlideIndex
+                log.info(f"CustomSlideShowWindow: SlideIndex = {slide_idx}")
 
             # During slideshow, currentSlide.Parent gives us the actual Slide object
             # which has the NotesPage property
