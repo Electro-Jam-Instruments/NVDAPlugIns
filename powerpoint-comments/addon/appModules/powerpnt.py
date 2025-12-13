@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.60"
+ADDON_VERSION = "0.0.61"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -261,6 +261,7 @@ class PowerPointWorker:
     v0.0.58: Fix stuck slideshow state - use COM SlideShowWindows.Count instead of unreliable events.
     v0.0.59: Change "has meeting notes" to "has notes"; notes announced first in slideshow.
     v0.0.60: Fix first alt-tab announcement - don't mark slide as announced when focus check fails.
+    v0.0.61: Slideshow notes via CustomSlideShowWindow._get_name() override - integrated single announcement.
     """
 
     # View type constants
@@ -616,6 +617,10 @@ class PowerPointWorker:
         """Called when slide changes during slideshow.
 
         v0.0.56: During slideshow, only announce meeting notes status (not comments).
+        v0.0.61: Removed "has notes" announcement - now handled by CustomSlideShowWindow._get_name()
+
+        The window name change will trigger NVDA's automatic announcement which will include
+        "has notes, " prefix if present, providing a single integrated announcement.
 
         Args:
             slide_index: New slide index (1-based)
@@ -623,7 +628,7 @@ class PowerPointWorker:
         """
         log.info(f"Worker: Slideshow slide changed to {slide_index}")
 
-        # Store slideshow window for notes access
+        # Store slideshow window for notes access (used by CustomSlideShowWindow._get_name())
         self._slideshow_window = slideshow_window
 
         # Avoid duplicate announcements
@@ -633,10 +638,9 @@ class PowerPointWorker:
 
         self._last_announced_slide = slide_index
 
-        # v0.0.56: During slideshow, only announce meeting notes (not comments)
-        if self._has_meeting_notes():
-            self._announce("has notes")
-            log.info("Worker: Slideshow slide has notes")
+        # v0.0.61: Notes announcement now handled by CustomSlideShowWindow._get_name()
+        # No additional announcement needed here - window name change handles it
+        log.debug("Worker: Slideshow slide tracking updated (announcement via window name)")
 
     def _has_active_presentation(self):
         """Check if there's an active presentation open."""
@@ -1052,6 +1056,65 @@ class PowerPointWorker:
 
 
 # ============================================================================
+# Custom Overlay Classes
+# ============================================================================
+
+class CustomSlideShowWindow(SlideShowWindow):
+    """Enhanced SlideShowWindow that announces speaker notes status in window name.
+
+    v0.0.61: Overrides _get_name() to prepend "has notes, " when speaker notes exist.
+    This ensures notes status is announced BEFORE slide number/title as a single
+    integrated announcement, not as a separate speech event.
+
+    The _get_name() property is called by NVDA when:
+    - The slideshow window is created
+    - The slide changes (window name changes)
+    - NVDA needs to announce focus on the window
+
+    Example announcements:
+    - With notes: "has notes, Slide show - Slide 3, Meeting Overview"
+    - Without notes: "Slide show - Slide 3, Meeting Overview"
+    - Notes mode: "has notes, Slide show notes - Slide 3, Meeting Overview"
+
+    This approach is:
+    - Non-timing-dependent (no race conditions)
+    - Single announcement point (no duplication)
+    - Respects NVDA's architecture (standard overlay class pattern)
+    - Preserves all other NVDA features (verbosity, speech settings, etc.)
+    """
+
+    def _get_name(self):
+        """Get window name with notes status prepended if present.
+
+        This property is queried by NVDA during focus reporting to determine
+        what to announce. We prepend "has notes, " when the current slide
+        has speaker notes with **** markers.
+
+        Returns:
+            str: Window name with optional "has notes, " prefix
+        """
+        # Get base announcement from parent class
+        # This will be "Slide show - {slideName}" or "Slide show notes - {slideName}"
+        base_name = super()._get_name()
+        log.debug(f"CustomSlideShowWindow: Base name = '{base_name}'")
+
+        # Check if current slide has meeting notes via worker thread
+        try:
+            if hasattr(self.appModule, '_worker') and self.appModule._worker:
+                # Check if slide has notes with **** markers
+                if self.appModule._worker._has_meeting_notes():
+                    log.info("CustomSlideShowWindow: Slide has notes - prepending to announcement")
+                    return f"has notes, {base_name}"
+                else:
+                    log.debug("CustomSlideShowWindow: No meeting notes on slide")
+        except Exception as e:
+            log.error(f"CustomSlideShowWindow: Error checking notes - {e}")
+
+        # No notes or error - return base announcement unchanged
+        return base_name
+
+
+# ============================================================================
 # AppModule - NVDA Integration
 # ============================================================================
 
@@ -1090,6 +1153,36 @@ class AppModule(AppModule):
             self._worker.request_initialize()
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
+
+    def chooseNVDAObjectOverlayClasses(self, obj, clsList):
+        """Apply custom overlay classes for PowerPoint objects.
+
+        v0.0.61: Registers CustomSlideShowWindow to override built-in slideshow window.
+        This allows us to customize the window name announcement to include "has notes"
+        status before the slide number/title.
+
+        Called by NVDA for each object to determine which custom classes to apply.
+        We let the parent handle standard selection first, then replace SlideShowWindow
+        with our CustomSlideShowWindow to get "has notes" announcement integration.
+
+        Args:
+            obj: The NVDAObject being initialized
+            clsList: List of classes to apply (modified in place)
+        """
+        # Let parent class do its selection first
+        # This populates clsList with built-in PowerPoint classes
+        super().chooseNVDAObjectOverlayClasses(obj, clsList)
+
+        # Check if parent assigned SlideShowWindow for this object
+        # SlideShowWindow is only used for slideshow presentation windows
+        if SlideShowWindow in clsList:
+            try:
+                # Replace built-in SlideShowWindow with our custom version
+                idx = clsList.index(SlideShowWindow)
+                clsList[idx] = CustomSlideShowWindow
+                log.info("chooseNVDAObjectOverlayClasses: Replaced SlideShowWindow with CustomSlideShowWindow")
+            except Exception as e:
+                log.error(f"chooseNVDAObjectOverlayClasses: Error replacing SlideShowWindow - {e}")
 
     def event_gainFocus(self, obj, nextHandler):
         """Called when any object in PowerPoint gains focus.
