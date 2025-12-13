@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.59"
+ADDON_VERSION = "0.0.60"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -260,6 +260,7 @@ class PowerPointWorker:
     v0.0.57: Debug logging for false "has meeting notes" during slideshow; fix premature SlideShowEnd.
     v0.0.58: Fix stuck slideshow state - use COM SlideShowWindows.Count instead of unreliable events.
     v0.0.59: Change "has meeting notes" to "has notes"; notes announced first in slideshow.
+    v0.0.60: Fix first alt-tab announcement - don't mark slide as announced when focus check fails.
     """
 
     # View type constants
@@ -526,22 +527,28 @@ class PowerPointWorker:
         announcements on reinit after focus regained).
         v0.0.54: Only announce if app has received focus (prevents announcement
         when NVDA starts with PowerPoint open but not focused).
+        v0.0.60: Don't mark slide as announced if we skip due to no focus.
         """
         try:
-            # v0.0.54: Don't announce if app hasn't received focus yet
-            if not self._has_received_focus:
-                log.info("Worker: Skipping initial slide announcement - app not focused yet")
+            current_index = self._get_current_slide_index()
+            if current_index <= 0:
                 return
 
-            current_index = self._get_current_slide_index()
-            if current_index > 0:
-                log.info(f"Worker: Initial slide is {current_index}, last announced was {self._last_announced_slide}")
-                # v0.0.23: Don't re-announce if same slide (prevents flashing on reinit)
-                if current_index == self._last_announced_slide:
-                    log.info("Worker: Skipping re-announcement - same slide")
-                    return
-                self._last_announced_slide = current_index
-                self._announce_slide_comments()
+            log.info(f"Worker: Initial slide is {current_index}, last announced was {self._last_announced_slide}")
+
+            # v0.0.54: Don't announce if app hasn't received focus yet
+            # v0.0.60: Also don't mark as announced, so we can announce on first real focus
+            if not self._has_received_focus:
+                log.info("Worker: Skipping initial slide announcement - app not focused yet (will announce on focus)")
+                return
+
+            # v0.0.23: Don't re-announce if same slide (prevents flashing on reinit)
+            if current_index == self._last_announced_slide:
+                log.info("Worker: Skipping re-announcement - same slide")
+                return
+
+            self._last_announced_slide = current_index
+            self._announce_slide_comments()
         except Exception as e:
             log.debug(f"Worker: Error checking initial slide - {e}")
 
