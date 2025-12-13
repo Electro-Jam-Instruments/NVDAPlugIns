@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.63"
+ADDON_VERSION = "0.0.64"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -264,6 +264,7 @@ class PowerPointWorker:
     v0.0.61: Slideshow notes via CustomSlideShowWindow._get_name() override - integrated single announcement.
     v0.0.62: Add reportFocus() override and extensive diagnostics - debug why custom class not instantiated.
     v0.0.63: Fix notes detection in slideshow - use self.currentSlide directly instead of worker thread.
+    v0.0.64: Fix NotesPage access - use currentSlide.Parent.NotesPage for slideshow slide objects.
     """
 
     # View type constants
@@ -1096,7 +1097,10 @@ class CustomSlideShowWindow(SlideShowWindow):
         """Check if current slide has meeting notes (marked with ****).
 
         v0.0.63: Use self.currentSlide directly instead of worker thread.
-        This avoids threading issues and is more reliable.
+        v0.0.64: Access NotesPage via Parent.NotesPage (slideshow slide is different type).
+
+        During slideshow, self.currentSlide is a SlideShowView.Slide object, not a regular
+        Slide object. We need to access the underlying Slide via its Parent property.
 
         Returns:
             bool: True if slide has notes with **** markers
@@ -1106,8 +1110,10 @@ class CustomSlideShowWindow(SlideShowWindow):
                 log.debug("CustomSlideShowWindow: No currentSlide available")
                 return False
 
-            # Access notes directly from the slide
-            notes_page = self.currentSlide.NotesPage
+            # During slideshow, currentSlide.Parent gives us the actual Slide object
+            # which has the NotesPage property
+            slide = self.currentSlide.Parent
+            notes_page = slide.NotesPage
             placeholder = notes_page.Shapes.Placeholders(2)
 
             if not placeholder.HasTextFrame:
@@ -1121,7 +1127,7 @@ class CustomSlideShowWindow(SlideShowWindow):
 
             notes_text = text_frame.TextRange.Text.strip()
             has_markers = '****' in notes_text
-            log.info(f"CustomSlideShowWindow: Slide {self.currentSlide.SlideIndex} notes check - "
+            log.info(f"CustomSlideShowWindow: Slide {slide.SlideIndex} notes check - "
                     f"length={len(notes_text)}, has_markers={has_markers}")
 
             return has_markers
