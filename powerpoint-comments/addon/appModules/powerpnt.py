@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.66"
+ADDON_VERSION = "0.0.67"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -267,6 +267,7 @@ class PowerPointWorker:
     v0.0.64: Fix NotesPage access - use currentSlide.Parent.NotesPage for slideshow slide objects.
     v0.0.65: Add diagnostics to discover actual currentSlide object type and properties during slideshow.
     v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint Slide COM object (not NVDA wrapper).
+    v0.0.67: Debug View property access - add diagnostics to find correct property name for SlideShowView.
     """
 
     # View type constants
@@ -1102,6 +1103,7 @@ class CustomSlideShowWindow(SlideShowWindow):
         v0.0.64: Access NotesPage via Parent.NotesPage (slideshow slide is different type).
         v0.0.65: Add diagnostics to discover actual object type and properties.
         v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint COM object.
+        v0.0.67: Debug View access - check hasattr and list view-related properties.
 
         self.currentSlide is an NVDA wrapper object. We need the actual PowerPoint COM Slide
         object which is accessed via self.View.Slide (same pattern as worker thread).
@@ -1113,8 +1115,22 @@ class CustomSlideShowWindow(SlideShowWindow):
             # Access PowerPoint COM object via View property
             # self.View is the SlideShowView COM object
             # self.View.Slide is the actual PowerPoint Slide COM object
-            if not hasattr(self, 'View') or not self.View:
-                log.debug("CustomSlideShowWindow: No View available")
+
+            # Diagnostic: Check what properties are available
+            has_view = hasattr(self, 'View')
+            log.info(f"CustomSlideShowWindow: hasattr(self, 'View') = {has_view}")
+
+            if has_view:
+                view_value = self.View
+                view_type = type(view_value).__name__ if view_value else "None"
+                log.info(f"CustomSlideShowWindow: self.View type = {view_type}, is_none = {view_value is None}")
+            else:
+                # List available attributes to find the right one
+                attrs = [attr for attr in dir(self) if not attr.startswith('_') and 'view' in attr.lower()]
+                log.info(f"CustomSlideShowWindow: Attributes containing 'view' = {attrs}")
+
+            if not has_view or not self.View:
+                log.warning("CustomSlideShowWindow: View not available - cannot access slide notes")
                 return False
 
             slide = self.View.Slide
