@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.62"
+ADDON_VERSION = "0.0.63"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -263,6 +263,7 @@ class PowerPointWorker:
     v0.0.60: Fix first alt-tab announcement - don't mark slide as announced when focus check fails.
     v0.0.61: Slideshow notes via CustomSlideShowWindow._get_name() override - integrated single announcement.
     v0.0.62: Add reportFocus() override and extensive diagnostics - debug why custom class not instantiated.
+    v0.0.63: Fix notes detection in slideshow - use self.currentSlide directly instead of worker thread.
     """
 
     # View type constants
@@ -1091,23 +1092,58 @@ class CustomSlideShowWindow(SlideShowWindow):
         log.info("CustomSlideShowWindow.__init__() CALLED - Instance created")
         super().__init__(*args, **kwargs)
 
+    def _check_slide_has_notes(self):
+        """Check if current slide has meeting notes (marked with ****).
+
+        v0.0.63: Use self.currentSlide directly instead of worker thread.
+        This avoids threading issues and is more reliable.
+
+        Returns:
+            bool: True if slide has notes with **** markers
+        """
+        try:
+            if not self.currentSlide:
+                log.debug("CustomSlideShowWindow: No currentSlide available")
+                return False
+
+            # Access notes directly from the slide
+            notes_page = self.currentSlide.NotesPage
+            placeholder = notes_page.Shapes.Placeholders(2)
+
+            if not placeholder.HasTextFrame:
+                log.debug("CustomSlideShowWindow: No text frame in notes")
+                return False
+
+            text_frame = placeholder.TextFrame
+            if not text_frame.HasText:
+                log.debug("CustomSlideShowWindow: No text in notes frame")
+                return False
+
+            notes_text = text_frame.TextRange.Text.strip()
+            has_markers = '****' in notes_text
+            log.info(f"CustomSlideShowWindow: Slide {self.currentSlide.SlideIndex} notes check - "
+                    f"length={len(notes_text)}, has_markers={has_markers}")
+
+            return has_markers
+
+        except Exception as e:
+            log.error(f"CustomSlideShowWindow: Error checking notes - {e}")
+            return False
+
     def reportFocus(self):
         """Override reportFocus to inject notes announcement.
 
         v0.0.62: Added this override because NVDA slideshow uses handleSlideChange()
         which calls reportFocus() directly. This is the actual entry point for
         slideshow announcements, not the normal focus event flow.
+
+        v0.0.63: Use self.currentSlide directly to check notes instead of worker thread.
         """
         log.info("CustomSlideShowWindow.reportFocus() CALLED")
 
-        # Check for notes
-        has_notes = False
-        try:
-            if hasattr(self.appModule, '_worker') and self.appModule._worker:
-                has_notes = self.appModule._worker._has_meeting_notes()
-                log.info(f"CustomSlideShowWindow.reportFocus(): has_notes = {has_notes}")
-        except Exception as e:
-            log.error(f"CustomSlideShowWindow.reportFocus(): Error checking notes - {e}")
+        # Check for notes using the slide object directly
+        has_notes = self._check_slide_has_notes()
+        log.info(f"CustomSlideShowWindow.reportFocus(): has_notes = {has_notes}")
 
         if has_notes:
             # Get the base name
@@ -1125,6 +1161,8 @@ class CustomSlideShowWindow(SlideShowWindow):
         """Get window name with notes status prepended if present.
 
         v0.0.62: Added diagnostic logging to verify if this method is ever called.
+        v0.0.63: Use self.currentSlide directly to check notes instead of worker thread.
+
         This property is queried by NVDA during focus reporting to determine
         what to announce. We prepend "has notes, " when the current slide
         has speaker notes with **** markers.
@@ -1139,20 +1177,13 @@ class CustomSlideShowWindow(SlideShowWindow):
         base_name = super()._get_name()
         log.info(f"CustomSlideShowWindow._get_name(): Base name = '{base_name}'")
 
-        # Check if current slide has meeting notes via worker thread
-        try:
-            if hasattr(self.appModule, '_worker') and self.appModule._worker:
-                # Check if slide has notes with **** markers
-                if self.appModule._worker._has_meeting_notes():
-                    log.info("CustomSlideShowWindow: Slide has notes - prepending to announcement")
-                    return f"has notes, {base_name}"
-                else:
-                    log.debug("CustomSlideShowWindow: No meeting notes on slide")
-        except Exception as e:
-            log.error(f"CustomSlideShowWindow: Error checking notes - {e}")
-
-        # No notes or error - return base announcement unchanged
-        return base_name
+        # Check if current slide has meeting notes using slide object directly
+        if self._check_slide_has_notes():
+            log.info("CustomSlideShowWindow._get_name(): Slide has notes - prepending to announcement")
+            return f"has notes, {base_name}"
+        else:
+            log.debug("CustomSlideShowWindow._get_name(): No meeting notes on slide")
+            return base_name
 
 
 # ============================================================================
