@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.67"
+ADDON_VERSION = "0.0.68"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -268,6 +268,7 @@ class PowerPointWorker:
     v0.0.65: Add diagnostics to discover actual currentSlide object type and properties during slideshow.
     v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint Slide COM object (not NVDA wrapper).
     v0.0.67: Debug View property access - add diagnostics to find correct property name for SlideShowView.
+    v0.0.68: Phase 1 normal mode fix - add slide object discovery logging to identify announcement point.
     """
 
     # View type constants
@@ -1303,6 +1304,7 @@ class AppModule(AppModule):
         v0.0.43: Also reformat reply comments (postRoot_) to remove date/time.
         v0.0.44: Auto-tab from NewCommentButton to first comment.
         v0.0.46: Use _pending_auto_focus for reliable auto-tab after slide navigation.
+        v0.0.68: Add slide object discovery diagnostics for normal mode announcement fix.
         """
         try:
             import re
@@ -1315,6 +1317,25 @@ class AppModule(AppModule):
             role = getattr(obj, 'role', None)
             role_name = getattr(obj, 'roleText', '') or ''
             states = getattr(obj, 'states', set()) or set()
+
+            # v0.0.68: Phase 1 - Slide object discovery
+            # Log focus events to identify slide object patterns
+            # Looking for the object that represents slide canvas/content area
+            window_class = getattr(obj, 'windowClassName', 'N/A')
+            parent_name = getattr(obj.parent, 'name', 'N/A') if obj.parent else 'N/A'
+
+            # Only log non-comment, non-button elements to reduce noise
+            is_potential_slide = (
+                not uia_id.startswith('cardRoot_') and
+                not uia_id.startswith('postRoot_') and
+                uia_id != 'NewCommentButton' and
+                'comment' not in uia_id.lower() and
+                'button' not in role_name.lower()
+            )
+
+            if is_potential_slide:
+                log.info(f"FOCUS_DISCOVERY: role={role} ({role_name}), name='{name[:50] if name else 'None'}', "
+                        f"windowClass={window_class}, parent='{parent_name[:30]}', uia_id={uia_id[:30]}")
 
             # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
             name_normalized = re.sub(r'\s+', ' ', name)
