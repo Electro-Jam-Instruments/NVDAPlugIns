@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.68"
+ADDON_VERSION = "0.0.69"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -269,6 +269,7 @@ class PowerPointWorker:
     v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint Slide COM object (not NVDA wrapper).
     v0.0.67: Debug View property access - add diagnostics to find correct property name for SlideShowView.
     v0.0.68: Phase 1 normal mode fix - add slide object discovery logging to identify announcement point.
+    v0.0.69: Fix discovery logging crash - handle None values in name/parent slicing.
     """
 
     # View type constants
@@ -1334,8 +1335,11 @@ class AppModule(AppModule):
             )
 
             if is_potential_slide:
-                log.info(f"FOCUS_DISCOVERY: role={role} ({role_name}), name='{name[:50] if name else 'None'}', "
-                        f"windowClass={window_class}, parent='{parent_name[:30]}', uia_id={uia_id[:30]}")
+                name_safe = name[:50] if name else 'None'
+                parent_safe = parent_name[:30] if parent_name and parent_name != 'N/A' else parent_name
+                uia_safe = uia_id[:30] if uia_id else ''
+                log.info(f"FOCUS_DISCOVERY: role={role} ({role_name}), name='{name_safe}', "
+                        f"windowClass={window_class}, parent='{parent_safe}', uia_id={uia_safe}")
 
             # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
             name_normalized = re.sub(r'\s+', ' ', name)
