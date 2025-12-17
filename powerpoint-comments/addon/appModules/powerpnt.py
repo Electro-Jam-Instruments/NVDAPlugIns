@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.70"
+ADDON_VERSION = "0.0.71"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -1306,6 +1306,7 @@ class AppModule(AppModule):
         """
         try:
             import re
+            import ui
             from inputCore import manager as inputManager
             from keyboardHandler import KeyboardInputGesture
 
@@ -1352,7 +1353,6 @@ class AppModule(AppModule):
 
                     if prefix_parts:
                         # Announce prefix BEFORE NVDA announces the slide
-                        import ui
                         prefix = ", ".join(prefix_parts)
                         log.info(f"SLIDE_FOCUS: Announcing prefix '{prefix}'")
                         ui.message(prefix)
