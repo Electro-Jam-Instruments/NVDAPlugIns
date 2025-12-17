@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.71"
+ADDON_VERSION = "0.0.72"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -924,6 +924,14 @@ class PowerPointWorker:
             log.info("Worker: Skipping comment announcements - in slideshow mode")
             return
 
+        # v0.0.70: Cache values for event_gainFocus to read
+        # Get comments and notes status FIRST so we can use them in announcements
+        comments = self._get_comments_on_current_slide()
+        self._last_comment_count = len(comments) if comments else 0
+        self._last_has_notes = self._has_meeting_notes()
+
+        log.info(f"Worker: Cached - comments={self._last_comment_count}, has_notes={self._last_has_notes}")
+
         # v0.0.50: Only announce slide title if navigated from Comments pane
         # NVDA's built-in PowerPoint module already announces slide on normal navigation
         if self._from_comments_navigation:
@@ -931,22 +939,33 @@ class PowerPointWorker:
             slide_title = self._get_slide_title()
 
             if slide_index > 0:
+                # v0.0.72: Build prefix announcement from cached values
+                # This ensures "has notes, Has N comments" announces BEFORE slide title
+                prefix_parts = []
+                if self._last_has_notes:
+                    prefix_parts.append("has notes")
+                if self._last_comment_count > 0:
+                    if self._last_comment_count == 1:
+                        prefix_parts.append("Has 1 comment")
+                    else:
+                        prefix_parts.append(f"Has {self._last_comment_count} comments")
+
+                # Announce prefix first (if any)
+                if prefix_parts:
+                    prefix = ", ".join(prefix_parts)
+                    self._announce(prefix)
+                    log.info(f"Worker: Announced prefix '{prefix}'")
+
+                # Then announce slide title
                 if slide_title:
                     slide_msg = f"{slide_index}: {slide_title}"
                 else:
                     slide_msg = f"Slide {slide_index}"
                 self._announce(slide_msg)
-                log.info(f"Worker: {slide_msg}")
+                log.info(f"Worker: Announced slide '{slide_msg}'")
+
             # Reset flag after use
             self._from_comments_navigation = False
-
-        # v0.0.70: Cache values for event_gainFocus to read
-        # Get comments and notes status
-        comments = self._get_comments_on_current_slide()
-        self._last_comment_count = len(comments) if comments else 0
-        self._last_has_notes = self._has_meeting_notes()
-
-        log.info(f"Worker: Cached - comments={self._last_comment_count}, has_notes={self._last_has_notes}")
 
         # v0.0.70: Skip announcements in normal mode - event_gainFocus handles it
         # This prevents double announcements since event_gainFocus now announces
