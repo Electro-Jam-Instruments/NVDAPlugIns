@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.69"
+ADDON_VERSION = "0.0.70"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -298,6 +298,9 @@ class PowerPointWorker:
         self._has_received_focus = False  # v0.0.54: Track if app has received focus
         self._in_slideshow = False  # v0.0.56: Track if in presentation mode
         self._slideshow_window = None  # v0.0.56: Store slideshow window for notes access
+        # v0.0.70: Cache values for event_gainFocus to read synchronously
+        self._last_comment_count = 0
+        self._last_has_notes = False
 
     def start(self):
         """Start the background thread."""
@@ -937,26 +940,20 @@ class PowerPointWorker:
             # Reset flag after use
             self._from_comments_navigation = False
 
-        # Announce comment count
+        # v0.0.70: Cache values for event_gainFocus to read
+        # Get comments and notes status
         comments = self._get_comments_on_current_slide()
+        self._last_comment_count = len(comments) if comments else 0
+        self._last_has_notes = self._has_meeting_notes()
 
-        if not comments:
-            self._announce("No comments")
-            log.info("Worker: No comments on this slide")
-        else:
-            count = len(comments)
-            msg = f"Has {count} comment{'s' if count != 1 else ''}"
-            self._announce(msg)
-            log.info(f"Worker: {msg}")
+        log.info(f"Worker: Cached - comments={self._last_comment_count}, has_notes={self._last_has_notes}")
 
-            # Open Comments pane for slides with comments
+        # v0.0.70: Skip announcements in normal mode - event_gainFocus handles it
+        # This prevents double announcements since event_gainFocus now announces
+        # the prefix BEFORE the slide title
+        # We still open the Comments pane though
+        if comments:
             self._open_comments_pane()
-
-        # v0.0.49: Announce if slide has meeting notes
-        # v0.0.52: Only announce for notes with **** markers (meeting notes)
-        if self._has_meeting_notes():
-            self._announce("has notes")
-            log.info("Worker: Slide has notes")
 
     def _is_comments_pane_visible(self):
         """Check if Comments pane is currently visible.
@@ -1319,27 +1316,48 @@ class AppModule(AppModule):
             role_name = getattr(obj, 'roleText', '') or ''
             states = getattr(obj, 'states', set()) or set()
 
-            # v0.0.68: Phase 1 - Slide object discovery
-            # Log focus events to identify slide object patterns
-            # Looking for the object that represents slide canvas/content area
-            window_class = getattr(obj, 'windowClassName', 'N/A')
-            parent_name = getattr(obj.parent, 'name', 'N/A') if obj.parent else 'N/A'
+            # v0.0.70: Phase 2 - Prepend notes/comments before slide title
+            # Slide object signature (from Phase 1 discovery):
+            #   windowClass='mdiClass', name='Slide N (Title) - Slide view'
+            window_class = getattr(obj, 'windowClassName', '') or ''
 
-            # Only log non-comment, non-button elements to reduce noise
-            is_potential_slide = (
-                not uia_id.startswith('cardRoot_') and
-                not uia_id.startswith('postRoot_') and
-                uia_id != 'NewCommentButton' and
-                'comment' not in uia_id.lower() and
-                'button' not in role_name.lower()
+            # Detect if this is the slide canvas gaining focus
+            is_slide_focus = (
+                window_class == 'mdiClass' and
+                name and
+                name.startswith('Slide ') and
+                ' - ' in name  # "- Slide view" or similar
             )
 
-            if is_potential_slide:
-                name_safe = name[:50] if name else 'None'
-                parent_safe = parent_name[:30] if parent_name and parent_name != 'N/A' else parent_name
-                uia_safe = uia_id[:30] if uia_id else ''
-                log.info(f"FOCUS_DISCOVERY: role={role} ({role_name}), name='{name_safe}', "
-                        f"windowClass={window_class}, parent='{parent_safe}', uia_id={uia_safe}")
+            if is_slide_focus:
+                log.info(f"SLIDE_FOCUS: Detected slide focus - '{name[:50]}'")
+                # Get cached info from worker
+                worker = getattr(self, '_worker', None)
+                if worker and getattr(worker, '_initialized', False):
+                    # Build prefix announcement from cached values
+                    prefix_parts = []
+
+                    # Check for notes (need to query worker)
+                    has_notes = getattr(worker, '_last_has_notes', False)
+                    if has_notes:
+                        prefix_parts.append("has notes")
+
+                    # Check for comments
+                    comment_count = getattr(worker, '_last_comment_count', 0)
+                    if comment_count > 0:
+                        if comment_count == 1:
+                            prefix_parts.append("Has 1 comment")
+                        else:
+                            prefix_parts.append(f"Has {comment_count} comments")
+
+                    if prefix_parts:
+                        # Announce prefix BEFORE NVDA announces the slide
+                        import ui
+                        prefix = ", ".join(prefix_parts)
+                        log.info(f"SLIDE_FOCUS: Announcing prefix '{prefix}'")
+                        ui.message(prefix)
+                else:
+                    log.debug("SLIDE_FOCUS: Worker not ready, skipping prefix")
 
             # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
             name_normalized = re.sub(r'\s+', ' ', name)
