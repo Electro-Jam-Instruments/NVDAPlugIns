@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.72"
+ADDON_VERSION = "0.0.73"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -932,6 +932,23 @@ class PowerPointWorker:
 
         log.info(f"Worker: Cached - comments={self._last_comment_count}, has_notes={self._last_has_notes}")
 
+        # v0.0.73: Build prefix announcement from cached values
+        # Worker thread has correct timing - data is for CURRENT slide
+        prefix_parts = []
+        if self._last_has_notes:
+            prefix_parts.append("has notes")
+        if self._last_comment_count > 0:
+            if self._last_comment_count == 1:
+                prefix_parts.append("Has 1 comment")
+            else:
+                prefix_parts.append(f"Has {self._last_comment_count} comments")
+
+        # Announce prefix (if any) - this works for ALL navigation types
+        if prefix_parts:
+            prefix = ", ".join(prefix_parts)
+            self._announce(prefix)
+            log.info(f"Worker: Announced prefix '{prefix}'")
+
         # v0.0.50: Only announce slide title if navigated from Comments pane
         # NVDA's built-in PowerPoint module already announces slide on normal navigation
         if self._from_comments_navigation:
@@ -939,24 +956,7 @@ class PowerPointWorker:
             slide_title = self._get_slide_title()
 
             if slide_index > 0:
-                # v0.0.72: Build prefix announcement from cached values
-                # This ensures "has notes, Has N comments" announces BEFORE slide title
-                prefix_parts = []
-                if self._last_has_notes:
-                    prefix_parts.append("has notes")
-                if self._last_comment_count > 0:
-                    if self._last_comment_count == 1:
-                        prefix_parts.append("Has 1 comment")
-                    else:
-                        prefix_parts.append(f"Has {self._last_comment_count} comments")
-
-                # Announce prefix first (if any)
-                if prefix_parts:
-                    prefix = ", ".join(prefix_parts)
-                    self._announce(prefix)
-                    log.info(f"Worker: Announced prefix '{prefix}'")
-
-                # Then announce slide title
+                # Announce slide title (prefix already announced above)
                 if slide_title:
                     slide_msg = f"{slide_index}: {slide_title}"
                 else:
@@ -967,10 +967,7 @@ class PowerPointWorker:
             # Reset flag after use
             self._from_comments_navigation = False
 
-        # v0.0.70: Skip announcements in normal mode - event_gainFocus handles it
-        # This prevents double announcements since event_gainFocus now announces
-        # the prefix BEFORE the slide title
-        # We still open the Comments pane though
+        # Open comments pane if there are comments
         if comments:
             self._open_comments_pane()
 
@@ -1351,32 +1348,11 @@ class AppModule(AppModule):
 
             if is_slide_focus:
                 log.info(f"SLIDE_FOCUS: Detected slide focus - '{name[:50]}'")
-                # Get cached info from worker
-                worker = getattr(self, '_worker', None)
-                if worker and getattr(worker, '_initialized', False):
-                    # Build prefix announcement from cached values
-                    prefix_parts = []
-
-                    # Check for notes (need to query worker)
-                    has_notes = getattr(worker, '_last_has_notes', False)
-                    if has_notes:
-                        prefix_parts.append("has notes")
-
-                    # Check for comments
-                    comment_count = getattr(worker, '_last_comment_count', 0)
-                    if comment_count > 0:
-                        if comment_count == 1:
-                            prefix_parts.append("Has 1 comment")
-                        else:
-                            prefix_parts.append(f"Has {comment_count} comments")
-
-                    if prefix_parts:
-                        # Announce prefix BEFORE NVDA announces the slide
-                        prefix = ", ".join(prefix_parts)
-                        log.info(f"SLIDE_FOCUS: Announcing prefix '{prefix}'")
-                        ui.message(prefix)
-                else:
-                    log.debug("SLIDE_FOCUS: Worker not ready, skipping prefix")
+                # v0.0.73: REMOVED prefix announcement from event_gainFocus
+                # The cached values are STALE at this point (from the PREVIOUS slide).
+                # The worker thread announces the prefix with correct timing since it
+                # queries the NEW slide's data before announcing.
+                # See _announce_slide_comments() for all prefix announcements.
 
             # Normalize whitespace - PowerPoint uses non-breaking spaces (U+00A0)
             name_normalized = re.sub(r'\s+', ' ', name)
