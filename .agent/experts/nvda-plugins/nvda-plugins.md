@@ -236,6 +236,77 @@ def chooseNVDAObjectOverlayClasses(self, obj, clsList):
         clsList.insert(0, CommentObject)
 ```
 
+## NVDA Event Sequence - Object Initialization and Focus
+
+Understanding the order of events is critical for modifying object properties before they're announced.
+
+### Event Order (When Object Gains Focus)
+
+| Order | Event/Method | Thread | Purpose |
+|-------|--------------|--------|---------|
+| 1 | `chooseNVDAObjectOverlayClasses(obj, clsList)` | Main | Select which overlay classes to apply |
+| 2 | `event_NVDAObject_init(obj)` | Main | Modify object properties (name, role, etc.) |
+| 3 | `event_gainFocus(obj, nextHandler)` | Main | Handle focus event, trigger announcements |
+
+**Sources:** [NVDA Developer Guide](https://download.nvaccess.org/documentation/developerGuide.html), [GitHub Issue #2569](https://github.com/nvaccess/nvda/issues/2569)
+
+### event_NVDAObject_init - Modify Before Announcement
+
+**Key insight:** `event_NVDAObject_init` fires BEFORE NVDA announces the object. You can modify `obj.name` here and NVDA will speak the modified name.
+
+```python
+def event_NVDAObject_init(self, obj):
+    """Modify object properties BEFORE announcement.
+
+    Available only in App Modules (not Global Plugins).
+    Fires after chooseNVDAObjectOverlayClasses but BEFORE gainFocus.
+    """
+    # Check if this is the object we want to modify
+    window_class = getattr(obj, 'windowClassName', '')
+    name = getattr(obj, 'name', '') or ''
+
+    if window_class == 'mdiClass' and name.startswith('Slide '):
+        # Prepend our custom info to the name
+        # NVDA will announce this modified name naturally
+        obj.name = f"has notes, {name}"
+```
+
+### Use Cases for Each Event
+
+| Event | Use When |
+|-------|----------|
+| `chooseNVDAObjectOverlayClasses` | Need to apply a custom class with multiple method overrides |
+| `event_NVDAObject_init` | Simple property overrides (name, role, description) |
+| `event_gainFocus` | React to focus changes, trigger side effects |
+
+### Timing Challenge with Worker Threads
+
+When using a worker thread (e.g., for COM operations), the main thread events fire BEFORE the worker has queried new data:
+
+```
+Timeline (slide navigation):
+├─ 0ms:   COM WindowSelectionChange event fires (worker thread)
+├─ 0ms:   event_NVDAObject_init fires (main thread) ← STALE DATA
+├─ 0ms:   event_gainFocus fires (main thread) ← STALE DATA
+├─ 23ms:  Worker thread finishes COM query, updates cache
+```
+
+**Solutions:**
+1. **Query COM synchronously** in `event_NVDAObject_init` (may slow NVDA)
+2. **Use overlay class** with `_get_name()` that queries COM lazily
+3. **Accept slight delay** and use worker announcement after focus
+
+### Focus Event Sequence (Multiple Objects)
+
+When focus moves between objects:
+```
+Old Focus → New Focus:
+1. loseFocus on old focus
+2. focusExited on old focus's parent (up to common ancestor)
+3. focusEntered on new ancestors (down from common ancestor)
+4. gainFocus on new focus
+```
+
 ## COM Integration (comtypes)
 
 ### Why comtypes, not pywin32

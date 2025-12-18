@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.73"
+ADDON_VERSION = "0.0.75"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -725,6 +725,20 @@ class PowerPointWorker:
         except Exception as e:
             log.error(f"Failed to queue announcement: {e}")
 
+    def _cancel_and_announce(self, message):
+        """Cancel current speech and announce message on main thread.
+
+        v0.0.74: Used to override NVDA's default slide announcement
+        with our prefix + slide title combined message.
+        """
+        try:
+            log.info(f"Worker: Cancel+Announce '{message}'")
+            # Queue cancel followed by our message
+            queueFunction(eventQueue, speech.cancelSpeech)
+            queueFunction(eventQueue, ui.message, message)
+        except Exception as e:
+            log.error(f"Failed to queue cancel+announcement: {e}")
+
     def _get_current_slide_index(self):
         """Get current slide index (1-based)."""
         try:
@@ -932,31 +946,33 @@ class PowerPointWorker:
 
         log.info(f"Worker: Cached - comments={self._last_comment_count}, has_notes={self._last_has_notes}")
 
-        # v0.0.73: Build prefix announcement from cached values
-        # Worker thread has correct timing - data is for CURRENT slide
-        prefix_parts = []
-        if self._last_has_notes:
-            prefix_parts.append("has notes")
-        if self._last_comment_count > 0:
-            if self._last_comment_count == 1:
-                prefix_parts.append("Has 1 comment")
-            else:
-                prefix_parts.append(f"Has {self._last_comment_count} comments")
-
-        # Announce prefix (if any) - this works for ALL navigation types
-        if prefix_parts:
-            prefix = ", ".join(prefix_parts)
-            self._announce(prefix)
-            log.info(f"Worker: Announced prefix '{prefix}'")
+        # v0.0.75: Normal navigation handled by event_NVDAObject_init
+        # which modifies obj.name BEFORE NVDA announces it.
+        # Worker only announces for Comments pane navigation (where we control the flow)
 
         # v0.0.50: Only announce slide title if navigated from Comments pane
-        # NVDA's built-in PowerPoint module already announces slide on normal navigation
         if self._from_comments_navigation:
             slide_index = self._get_current_slide_index()
             slide_title = self._get_slide_title()
 
             if slide_index > 0:
-                # Announce slide title (prefix already announced above)
+                # Build prefix for Comments pane navigation
+                prefix_parts = []
+                if self._last_has_notes:
+                    prefix_parts.append("has notes")
+                if self._last_comment_count > 0:
+                    if self._last_comment_count == 1:
+                        prefix_parts.append("Has 1 comment")
+                    else:
+                        prefix_parts.append(f"Has {self._last_comment_count} comments")
+
+                # Announce prefix first (if any)
+                if prefix_parts:
+                    prefix = ", ".join(prefix_parts)
+                    self._announce(prefix)
+                    log.info(f"Worker: Announced prefix '{prefix}'")
+
+                # Then announce slide title
                 if slide_title:
                     slide_msg = f"{slide_index}: {slide_title}"
                 else:
@@ -964,7 +980,8 @@ class PowerPointWorker:
                 self._announce(slide_msg)
                 log.info(f"Worker: Announced slide '{slide_msg}'")
 
-            # Reset flag after use
+        # Reset flag after use
+        if self._from_comments_navigation:
             self._from_comments_navigation = False
 
         # Open comments pane if there are comments
@@ -1270,6 +1287,65 @@ class AppModule(AppModule):
             self._worker.request_initialize()
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
+
+    def event_NVDAObject_init(self, obj):
+        """Modify object properties BEFORE NVDA announces them.
+
+        v0.0.75: NVDA-recommended approach for simple property changes.
+        This fires BEFORE event_gainFocus, so we can prepend our prefix
+        to obj.name and NVDA will announce the modified name naturally.
+
+        Per NVDA Developer Guide: "Sometimes, you may wish to make only
+        small changes to an NVDA Object in an application, such as
+        overriding its name or role."
+        """
+        try:
+            # Check if this is the slide canvas object
+            window_class = getattr(obj, 'windowClassName', '') or ''
+            name = getattr(obj, 'name', '') or ''
+
+            # Slide object signature: windowClass='mdiClass', name='Slide N (Title) - Slide view'
+            is_slide = (
+                window_class == 'mdiClass' and
+                name and
+                name.startswith('Slide ') and
+                ' - ' in name
+            )
+
+            if is_slide:
+                log.info(f"event_NVDAObject_init: Slide detected - '{name[:50]}'")
+
+                # Get fresh data from worker's cache
+                # Note: Worker may not have updated yet if COM event is still processing
+                worker = getattr(self, '_worker', None)
+                if worker and getattr(worker, '_initialized', False):
+                    # Build prefix from cached values
+                    prefix_parts = []
+
+                    has_notes = getattr(worker, '_last_has_notes', False)
+                    if has_notes:
+                        prefix_parts.append("has notes")
+
+                    comment_count = getattr(worker, '_last_comment_count', 0)
+                    if comment_count > 0:
+                        if comment_count == 1:
+                            prefix_parts.append("Has 1 comment")
+                        else:
+                            prefix_parts.append(f"Has {comment_count} comments")
+
+                    if prefix_parts:
+                        prefix = ", ".join(prefix_parts)
+                        # Prepend prefix to the object's name
+                        # NVDA will announce this modified name naturally
+                        obj.name = f"{prefix}, {name}"
+                        log.info(f"event_NVDAObject_init: Modified name to '{obj.name[:60]}...'")
+                    else:
+                        log.debug("event_NVDAObject_init: No prefix needed (no notes/comments)")
+                else:
+                    log.debug("event_NVDAObject_init: Worker not ready")
+
+        except Exception as e:
+            log.error(f"event_NVDAObject_init: Error - {e}")
 
     def chooseNVDAObjectOverlayClasses(self, obj, clsList):
         """Apply custom overlay classes for PowerPoint objects.
