@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.76"
+ADDON_VERSION = "0.0.77"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -301,6 +301,11 @@ class PowerPointWorker:
         # v0.0.70: Cache values for event_gainFocus to read synchronously
         self._last_comment_count = 0
         self._last_has_notes = False
+        # v0.0.77: Slideshow-specific cache for CustomSlideShowWindow
+        self._slideshow_title = ""
+        self._slideshow_has_notes = False
+        self._slideshow_comment_count = 0
+        self._slideshow_data_ready = False
 
     def start(self):
         """Start the background thread."""
@@ -600,6 +605,7 @@ class PowerPointWorker:
         """Called when slideshow starts.
 
         v0.0.56: Track slideshow state to suppress comment announcements.
+        v0.0.77: Cache first slide data (SlideShowNextSlide doesn't fire for slide 1).
 
         Args:
             wn: SlideShowWindow object (IDispatch)
@@ -608,11 +614,20 @@ class PowerPointWorker:
         self._in_slideshow = True
         self._slideshow_window = wn
 
+        # v0.0.77: Cache first slide data immediately
+        # SlideShowNextSlide event does NOT fire for the first slide
+        try:
+            self._cache_slideshow_slide_data(wn)
+            log.info("Worker: Cached first slide data on slideshow begin")
+        except Exception as e:
+            log.error(f"Worker: Error caching first slide - {e}")
+
     def on_slideshow_end(self, pres):
         """Called when slideshow ends.
 
         v0.0.56: Reset slideshow state.
         v0.0.57: Only reset if we were actually in slideshow mode (avoid false events).
+        v0.0.77: Reset slideshow cache.
 
         Args:
             pres: Presentation object (IDispatch)
@@ -621,6 +636,11 @@ class PowerPointWorker:
             log.info("Worker: Slideshow ended - exiting presentation mode")
             self._in_slideshow = False
             self._slideshow_window = None
+            # v0.0.77: Reset slideshow cache
+            self._slideshow_data_ready = False
+            self._slideshow_title = ""
+            self._slideshow_has_notes = False
+            self._slideshow_comment_count = 0
         else:
             log.debug("Worker: SlideShowEnd received but not in slideshow mode - ignoring")
 
@@ -629,6 +649,7 @@ class PowerPointWorker:
 
         v0.0.56: During slideshow, only announce meeting notes status (not comments).
         v0.0.61: Removed "has notes" announcement - now handled by CustomSlideShowWindow._get_name()
+        v0.0.77: Cache slide data for CustomSlideShowWindow to read.
 
         The window name change will trigger NVDA's automatic announcement which will include
         "has notes, " prefix if present, providing a single integrated announcement.
@@ -649,8 +670,13 @@ class PowerPointWorker:
 
         self._last_announced_slide = slide_index
 
-        # v0.0.61: Notes announcement now handled by CustomSlideShowWindow._get_name()
-        # No additional announcement needed here - window name change handles it
+        # v0.0.77: Cache slide data for CustomSlideShowWindow._get_name()
+        # This fires BEFORE NVDA processes the slide change, so cache will be ready
+        try:
+            self._cache_slideshow_slide_data(slideshow_window)
+        except Exception as e:
+            log.error(f"Worker: Error caching slideshow slide data - {e}")
+
         log.debug("Worker: Slideshow slide tracking updated (announcement via window name)")
 
     def _has_active_presentation(self):
@@ -679,6 +705,63 @@ class PowerPointWorker:
         except Exception as e:
             log.debug(f"Worker: Could not check slideshow state - {e}")
         return False
+
+    def _cache_slideshow_slide_data(self, slideshow_window):
+        """Cache slide data for slideshow mode.
+
+        v0.0.77: Called from SlideShowBegin (first slide) and SlideShowNextSlide events.
+        This runs BEFORE NVDA processes the slide change, so the cache will be ready
+        when CustomSlideShowWindow._get_name() is called.
+
+        Args:
+            slideshow_window: SlideShowWindow COM object
+        """
+        self._slideshow_data_ready = False  # Mark as not ready while updating
+
+        try:
+            slide = slideshow_window.View.Slide
+            slide_index = slide.SlideIndex
+            log.info(f"Worker: Caching slideshow data for slide {slide_index}")
+
+            # Cache slide title
+            self._slideshow_title = ""
+            try:
+                if slide.Shapes.HasTitle:
+                    title_shape = slide.Shapes.Title
+                    if title_shape and title_shape.HasTextFrame:
+                        text_frame = title_shape.TextFrame
+                        if text_frame.HasText:
+                            self._slideshow_title = text_frame.TextRange.Text.strip()
+            except Exception as e:
+                log.debug(f"Worker: Could not get slideshow title - {e}")
+
+            # Cache notes status (check for **** markers)
+            self._slideshow_has_notes = False
+            try:
+                notes_page = slide.NotesPage
+                placeholder = notes_page.Shapes.Placeholders(2)
+                if placeholder.HasTextFrame:
+                    text_frame = placeholder.TextFrame
+                    if text_frame.HasText:
+                        notes_text = text_frame.TextRange.Text.strip()
+                        self._slideshow_has_notes = '****' in notes_text
+            except Exception as e:
+                log.debug(f"Worker: Could not check slideshow notes - {e}")
+
+            # Cache comment count
+            self._slideshow_comment_count = 0
+            try:
+                self._slideshow_comment_count = slide.Comments.Count
+            except Exception as e:
+                log.debug(f"Worker: Could not get slideshow comments - {e}")
+
+            self._slideshow_data_ready = True
+            log.info(f"Worker: Slideshow cache ready - title='{self._slideshow_title[:30] if self._slideshow_title else ''}', "
+                    f"has_notes={self._slideshow_has_notes}, comments={self._slideshow_comment_count}")
+
+        except Exception as e:
+            log.error(f"Worker: Error caching slideshow data - {e}")
+            self._slideshow_data_ready = False
 
     def _get_window(self):
         """Get the current window (v0.0.22: prefer stored window over ActiveWindow)."""
@@ -1097,155 +1180,129 @@ class PowerPointWorker:
 # Custom Overlay Classes
 # ============================================================================
 
-class CustomSlideShowWindow(SlideShowWindow):
-    """Enhanced SlideShowWindow that announces speaker notes status in window name.
+# v0.0.77: Custom TreeInterceptor to suppress full slide content reading
+# NVDA's reportNewSlide() method lives on the TreeInterceptor, NOT on SlideShowWindow
+# We must override it here, not on SlideShowWindow (which was the v0.0.76 bug)
 
-    v0.0.61: Initial implementation using _get_name() override (not working).
-    v0.0.62: Added diagnostics and reportFocus() override to fix announcement path.
 
-    Research found that NVDA slideshow announcements use handleSlideChange() → reportFocus(),
-    not the normal focus event flow. The _get_name() override is correct but wasn't being
-    called because reportFocus() needs to be overridden to ensure our custom class methods
-    are invoked.
+class CustomSlideshowTreeInterceptor(ReviewableSlideshowTreeInterceptor):
+    """Custom TreeInterceptor that suppresses automatic full slide reading.
 
-    This ensures notes status is announced BEFORE slide number/title as a single
-    integrated announcement, not as a separate speech event.
+    v0.0.77: Created to properly suppress content reading in slideshow mode.
 
-    Example announcements:
-    - With notes: "has notes, Slide show - Slide 3, Meeting Overview"
-    - Without notes: "Slide show - Slide 3, Meeting Overview"
-    - Notes mode: "has notes, Slide show notes - Slide 3, Meeting Overview"
+    NVDA's slideshow content reading is controlled by reportNewSlide() on the
+    TreeInterceptor class, NOT on SlideShowWindow. The previous attempt to
+    override reportNewSlide on SlideShowWindow had no effect.
 
-    This approach is:
-    - Non-timing-dependent (no race conditions)
-    - Single announcement point (no duplication)
-    - Respects NVDA's architecture (standard overlay class pattern)
-    - Preserves all other NVDA features (verbosity, speech settings, etc.)
+    By overriding reportNewSlide() here, we prevent NVDA from auto-reading
+    all slide content (shapes, text boxes, etc.). The slide title and our
+    custom prefix are still announced via CustomSlideShowWindow._get_name().
     """
 
+    def reportNewSlide(self):
+        """Override to suppress automatic full slide content reading.
+
+        v0.0.77: This method is called by NVDA after slide changes.
+        By doing nothing here, we prevent the automatic "say all" that
+        reads every shape and text element on the slide.
+
+        The slide title/prefix is still announced via the window name
+        (CustomSlideShowWindow._get_name() → handleSlideChange → reportFocus).
+        """
+        log.info("CustomSlideshowTreeInterceptor.reportNewSlide() - suppressing content reading")
+        # Do nothing - suppress automatic content reading
+        pass
+
+
+class CustomSlideShowWindow(SlideShowWindow):
+    """Enhanced SlideShowWindow that announces notes/comments status before slide title.
+
+    v0.0.61: Initial implementation using _get_name() override.
+    v0.0.62: Added diagnostics and reportFocus() override.
+    v0.0.77: Complete rewrite using worker thread cache + custom TreeInterceptor.
+
+    Architecture (v0.0.77):
+    1. COM events (SlideShowBegin, SlideShowNextSlide) fire BEFORE NVDA processes
+    2. Worker thread caches: title, notes status, comment count
+    3. CustomSlideShowWindow._get_name() reads cached values
+    4. CustomSlideshowTreeInterceptor.reportNewSlide() suppresses full content reading
+
+    Example announcements:
+    - With notes and comments: "has notes, Has 2 comments, Meeting Overview"
+    - With notes only: "has notes, Slide 3"
+    - No notes/comments: "Slide 3, Meeting Overview"
+
+    Key insight: By the time _get_name() is called, the COM event has already
+    fired and the worker has cached the correct data for the NEW slide.
+    """
+
+    # v0.0.77: Use custom TreeInterceptor to suppress content reading
+    treeInterceptorClass = CustomSlideshowTreeInterceptor
+
     def __init__(self, *args, **kwargs):
-        """Initialize custom slideshow window with diagnostic logging."""
+        """Initialize custom slideshow window."""
         log.info("CustomSlideShowWindow.__init__() CALLED - Instance created")
         super().__init__(*args, **kwargs)
 
-    def _check_slide_has_notes(self):
-        """Check if current slide has meeting notes (marked with ****).
-
-        v0.0.63: Use self.currentSlide directly instead of worker thread.
-        v0.0.64: Access NotesPage via Parent.NotesPage (slideshow slide is different type).
-        v0.0.65: Add diagnostics to discover actual object type and properties.
-        v0.0.66: Fix COM access - use self.View.Slide to get PowerPoint COM object.
-        v0.0.67: Debug View access - check hasattr and list view-related properties.
-
-        self.currentSlide is an NVDA wrapper object. We need the actual PowerPoint COM Slide
-        object which is accessed via self.View.Slide (same pattern as worker thread).
-
-        Returns:
-            bool: True if slide has notes with **** markers
-        """
-        try:
-            # Access PowerPoint COM object via View property
-            # self.View is the SlideShowView COM object
-            # self.View.Slide is the actual PowerPoint Slide COM object
-
-            # Diagnostic: Check what properties are available
-            has_view = hasattr(self, 'View')
-            log.info(f"CustomSlideShowWindow: hasattr(self, 'View') = {has_view}")
-
-            if has_view:
-                view_value = self.View
-                view_type = type(view_value).__name__ if view_value else "None"
-                log.info(f"CustomSlideShowWindow: self.View type = {view_type}, is_none = {view_value is None}")
-            else:
-                # List available attributes to find the right one
-                attrs = [attr for attr in dir(self) if not attr.startswith('_') and 'view' in attr.lower()]
-                log.info(f"CustomSlideShowWindow: Attributes containing 'view' = {attrs}")
-
-            if not has_view or not self.View:
-                log.warning("CustomSlideShowWindow: View not available - cannot access slide notes")
-                return False
-
-            slide = self.View.Slide
-            log.info(f"CustomSlideShowWindow: Accessing slide {slide.SlideIndex} via View.Slide")
-
-            # Access notes page
-            notes_page = slide.NotesPage
-            placeholder = notes_page.Shapes.Placeholders(2)
-
-            if not placeholder.HasTextFrame:
-                log.debug("CustomSlideShowWindow: No text frame in notes")
-                return False
-
-            text_frame = placeholder.TextFrame
-            if not text_frame.HasText:
-                log.debug("CustomSlideShowWindow: No text in notes frame")
-                return False
-
-            notes_text = text_frame.TextRange.Text.strip()
-            has_markers = '****' in notes_text
-            log.info(f"CustomSlideShowWindow: Slide {slide.SlideIndex} notes check - "
-                    f"length={len(notes_text)}, has_markers={has_markers}")
-
-            return has_markers
-
-        except Exception as e:
-            log.error(f"CustomSlideShowWindow: Error checking notes - {e}")
-            return False
-
-    def reportFocus(self):
-        """Override reportFocus to inject notes announcement.
-
-        v0.0.62: Added this override because NVDA slideshow uses handleSlideChange()
-        which calls reportFocus() directly. This is the actual entry point for
-        slideshow announcements, not the normal focus event flow.
-
-        v0.0.63: Use self.currentSlide directly to check notes instead of worker thread.
-        """
-        log.info("CustomSlideShowWindow.reportFocus() CALLED")
-
-        # Check for notes using the slide object directly
-        has_notes = self._check_slide_has_notes()
-        log.info(f"CustomSlideShowWindow.reportFocus(): has_notes = {has_notes}")
-
-        if has_notes:
-            # Get the base name
-            base_name = super()._get_name()
-            log.info(f"CustomSlideShowWindow.reportFocus(): Announcing 'has notes, {base_name}'")
-            # Speak custom sequence
-            import ui
-            ui.message(f"has notes, {base_name}")
-        else:
-            # Normal announcement
-            log.debug("CustomSlideShowWindow.reportFocus(): No notes, using normal announcement")
-            super().reportFocus()
-
     def _get_name(self):
-        """Get window name with notes status prepended if present.
+        """Get window name with notes/comments prefix prepended.
 
-        v0.0.62: Added diagnostic logging to verify if this method is ever called.
-        v0.0.63: Use self.currentSlide directly to check notes instead of worker thread.
-
-        This property is queried by NVDA during focus reporting to determine
-        what to announce. We prepend "has notes, " when the current slide
-        has speaker notes with **** markers.
+        v0.0.77: Uses worker thread cache instead of direct COM access.
+        The COM event fires BEFORE NVDA processes, so cache is always ready.
 
         Returns:
-            str: Window name with optional "has notes, " prefix
+            str: Custom announcement with prefix, or just slide title
         """
         log.info("CustomSlideShowWindow._get_name() CALLED")
 
-        # Get base announcement from parent class
-        # This will be "Slide show - {slideName}" or "Slide show notes - {slideName}"
-        base_name = super()._get_name()
-        log.info(f"CustomSlideShowWindow._get_name(): Base name = '{base_name}'")
+        # Access the AppModule's worker to get cached data
+        global _current_app_module
+        if _current_app_module is None:
+            log.debug("CustomSlideShowWindow._get_name: No app module reference")
+            return super()._get_name()
 
-        # Check if current slide has meeting notes using slide object directly
-        if self._check_slide_has_notes():
-            log.info("CustomSlideShowWindow._get_name(): Slide has notes - prepending to announcement")
-            return f"has notes, {base_name}"
+        worker = getattr(_current_app_module, '_worker', None)
+        if not worker:
+            log.debug("CustomSlideShowWindow._get_name: No worker")
+            return super()._get_name()
+
+        # Check if slideshow cache is ready
+        if not getattr(worker, '_slideshow_data_ready', False):
+            log.debug("CustomSlideShowWindow._get_name: Cache not ready")
+            return super()._get_name()
+
+        # Build prefix from cached values
+        prefix_parts = []
+
+        has_notes = getattr(worker, '_slideshow_has_notes', False)
+        if has_notes:
+            prefix_parts.append("has notes")
+
+        comment_count = getattr(worker, '_slideshow_comment_count', 0)
+        if comment_count > 0:
+            if comment_count == 1:
+                prefix_parts.append("Has 1 comment")
+            else:
+                prefix_parts.append(f"Has {comment_count} comments")
+
+        # Build the announcement
+        # Use cached title if available, otherwise fall back to slide number
+        cached_title = getattr(worker, '_slideshow_title', '')
+        if cached_title:
+            slide_part = cached_title
+        elif self.currentSlide:
+            slide_part = self.currentSlide.name
         else:
-            log.debug("CustomSlideShowWindow._get_name(): No meeting notes on slide")
-            return base_name
+            slide_part = "Slide"
+
+        if prefix_parts:
+            prefix = ", ".join(prefix_parts)
+            result = f"{prefix}, {slide_part}"
+            log.info(f"CustomSlideShowWindow._get_name: Returning '{result[:60]}...'")
+            return result
+
+        log.debug(f"CustomSlideShowWindow._get_name: No prefix, returning '{slide_part}'")
+        return slide_part
 
 
 # Store reference to the AppModule instance for CustomSlide to access worker

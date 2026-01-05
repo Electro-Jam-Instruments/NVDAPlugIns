@@ -46,5 +46,7 @@ git push origin powerpoint-comments-v{VERSION}-beta
 Provide summary:
 - Version deployed
 - Build status
-- Download URL: https://electro-jam-instruments.github.io/NVDAPlugIns/
+- Download URLs:
+  - Latest beta: `https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest-beta.nvda-addon`
+  - Specific version: `https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-{VERSION}.nvda-addon`
 - Next step: Download, install, restart NVDA, test
