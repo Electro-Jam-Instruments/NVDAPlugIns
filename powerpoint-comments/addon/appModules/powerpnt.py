@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.75"
+ADDON_VERSION = "0.0.76"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -1248,6 +1248,76 @@ class CustomSlideShowWindow(SlideShowWindow):
             return base_name
 
 
+# Store reference to the AppModule instance for CustomSlide to access worker
+_current_app_module = None
+
+
+class CustomSlide(Slide):
+    """Enhanced Slide that announces notes/comments status before slide name.
+
+    v0.0.76: Implements lazy _get_name() override pattern.
+
+    NVDA's Slide._get_name() is called LAZILY when NVDA needs to announce.
+    By the time NVDA calls this method, our worker thread has already
+    updated the cache with the correct data for the current slide.
+
+    This is the same pattern used for CustomSlideShowWindow in slideshow mode.
+
+    Example announcements:
+    - With notes and comments: "has notes, Has 2 comments, Slide 3 (Title)"
+    - With comments only: "Has 1 comment, Slide 3 (Title)"
+    - No notes/comments: "Slide 3 (Title)" (unchanged from base)
+    """
+
+    def _get_name(self):
+        """Get slide name with notes/comments prefix prepended.
+
+        This method is called lazily by NVDA when it needs the name.
+        By this point, the worker thread has already queried COM and
+        updated the cache with correct data for the current slide.
+
+        Returns:
+            str: Slide name with optional prefix
+        """
+        # Get the base name from parent class
+        # Format: "Slide N (Title)" or "Slide N" if no title
+        base_name = super()._get_name()
+
+        # Access the AppModule's worker to get cached data
+        global _current_app_module
+        if _current_app_module is None:
+            log.debug("CustomSlide._get_name: No app module reference")
+            return base_name
+
+        worker = getattr(_current_app_module, '_worker', None)
+        if not worker or not getattr(worker, '_initialized', False):
+            log.debug("CustomSlide._get_name: Worker not ready")
+            return base_name
+
+        # Build prefix from cached values (worker has already updated these)
+        prefix_parts = []
+
+        has_notes = getattr(worker, '_last_has_notes', False)
+        if has_notes:
+            prefix_parts.append("has notes")
+
+        comment_count = getattr(worker, '_last_comment_count', 0)
+        if comment_count > 0:
+            if comment_count == 1:
+                prefix_parts.append("Has 1 comment")
+            else:
+                prefix_parts.append(f"Has {comment_count} comments")
+
+        if prefix_parts:
+            prefix = ", ".join(prefix_parts)
+            result = f"{prefix}, {base_name}"
+            log.info(f"CustomSlide._get_name: Returning '{result[:60]}...'")
+            return result
+
+        log.debug(f"CustomSlide._get_name: No prefix, returning base name")
+        return base_name
+
+
 # ============================================================================
 # AppModule - NVDA Integration
 # ============================================================================
@@ -1267,6 +1337,11 @@ class AppModule(AppModule):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._worker = None
+
+        # v0.0.76: Store reference for CustomSlide to access worker
+        global _current_app_module
+        _current_app_module = self
+
         try:
             self._worker = PowerPointWorker()
             self._worker.start()
@@ -1288,70 +1363,16 @@ class AppModule(AppModule):
         else:
             log.warning("PowerPoint Comments: Worker not available, skipping initialization")
 
-    def event_NVDAObject_init(self, obj):
-        """Modify object properties BEFORE NVDA announces them.
-
-        v0.0.75: NVDA-recommended approach for simple property changes.
-        This fires BEFORE event_gainFocus, so we can prepend our prefix
-        to obj.name and NVDA will announce the modified name naturally.
-
-        Per NVDA Developer Guide: "Sometimes, you may wish to make only
-        small changes to an NVDA Object in an application, such as
-        overriding its name or role."
-        """
-        try:
-            # Check if this is the slide canvas object
-            window_class = getattr(obj, 'windowClassName', '') or ''
-            name = getattr(obj, 'name', '') or ''
-
-            # Slide object signature: windowClass='mdiClass', name='Slide N (Title) - Slide view'
-            is_slide = (
-                window_class == 'mdiClass' and
-                name and
-                name.startswith('Slide ') and
-                ' - ' in name
-            )
-
-            if is_slide:
-                log.info(f"event_NVDAObject_init: Slide detected - '{name[:50]}'")
-
-                # Get fresh data from worker's cache
-                # Note: Worker may not have updated yet if COM event is still processing
-                worker = getattr(self, '_worker', None)
-                if worker and getattr(worker, '_initialized', False):
-                    # Build prefix from cached values
-                    prefix_parts = []
-
-                    has_notes = getattr(worker, '_last_has_notes', False)
-                    if has_notes:
-                        prefix_parts.append("has notes")
-
-                    comment_count = getattr(worker, '_last_comment_count', 0)
-                    if comment_count > 0:
-                        if comment_count == 1:
-                            prefix_parts.append("Has 1 comment")
-                        else:
-                            prefix_parts.append(f"Has {comment_count} comments")
-
-                    if prefix_parts:
-                        prefix = ", ".join(prefix_parts)
-                        # Prepend prefix to the object's name
-                        # NVDA will announce this modified name naturally
-                        obj.name = f"{prefix}, {name}"
-                        log.info(f"event_NVDAObject_init: Modified name to '{obj.name[:60]}...'")
-                    else:
-                        log.debug("event_NVDAObject_init: No prefix needed (no notes/comments)")
-                else:
-                    log.debug("event_NVDAObject_init: Worker not ready")
-
-        except Exception as e:
-            log.error(f"event_NVDAObject_init: Error - {e}")
+    # v0.0.76: Removed event_NVDAObject_init - CustomSlide._get_name() handles prefix now
+    # The overlay class approach is cleaner because _get_name() is called lazily,
+    # after the worker thread has updated the cache with correct data.
 
     def chooseNVDAObjectOverlayClasses(self, obj, clsList):
         """Apply custom overlay classes for PowerPoint objects.
 
         v0.0.61: Registers CustomSlideShowWindow to override built-in slideshow window.
         v0.0.62: Added extensive diagnostics to debug why custom class not instantiated.
+        v0.0.76: Registers CustomSlide to override built-in Slide for normal mode.
 
         This allows us to customize the window name announcement to include "has notes"
         status before the slide number/title.
@@ -1367,6 +1388,17 @@ class AppModule(AppModule):
         # Let parent class do its selection first
         # This populates clsList with built-in PowerPoint classes
         super().chooseNVDAObjectOverlayClasses(obj, clsList)
+
+        # v0.0.76: Replace Slide with CustomSlide for normal editing mode
+        # CustomSlide._get_name() prepends notes/comments prefix
+        if Slide in clsList:
+            try:
+                log.info(f"chooseNVDAObjectOverlayClasses: Slide found - replacing with CustomSlide")
+                idx = clsList.index(Slide)
+                clsList[idx] = CustomSlide
+                log.info(f"chooseNVDAObjectOverlayClasses: Replaced Slide at index {idx}")
+            except Exception as e:
+                log.error(f"chooseNVDAObjectOverlayClasses: Error replacing Slide - {e}")
 
         # Check if parent assigned SlideShowWindow for this object
         # SlideShowWindow is only used for slideshow presentation windows
