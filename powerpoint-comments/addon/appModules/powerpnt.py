@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.77"
+ADDON_VERSION = "0.0.78"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -1189,29 +1189,69 @@ class CustomSlideshowTreeInterceptor(ReviewableSlideshowTreeInterceptor):
     """Custom TreeInterceptor that suppresses automatic full slide reading.
 
     v0.0.77: Created to properly suppress content reading in slideshow mode.
+    v0.0.78: Fixed to announce slide title - must speak the first line.
 
     NVDA's slideshow content reading is controlled by reportNewSlide() on the
-    TreeInterceptor class, NOT on SlideShowWindow. The previous attempt to
-    override reportNewSlide on SlideShowWindow had no effect.
+    TreeInterceptor class, NOT on SlideShowWindow.
 
-    By overriding reportNewSlide() here, we prevent NVDA from auto-reading
-    all slide content (shapes, text boxes, etc.). The slide title and our
-    custom prefix are still announced via CustomSlideShowWindow._get_name().
+    The original reportNewSlide() does:
+    1. If autoSayAll enabled: reads entire slide with sayAll
+    2. Otherwise: speaks first line with speakTextInfo
+
+    We override to:
+    1. NEVER do sayAll (skip full content reading)
+    2. ALWAYS speak first line (slide title announcement)
     """
 
-    def reportNewSlide(self):
-        """Override to suppress automatic full slide content reading.
+    def reportNewSlide(self, suppressSayAll: bool = False):
+        """Override to suppress full slide reading but still announce title.
 
-        v0.0.77: This method is called by NVDA after slide changes.
-        By doing nothing here, we prevent the automatic "say all" that
-        reads every shape and text element on the slide.
+        v0.0.78: Announce first line (slide title) but skip sayAll.
 
-        The slide title/prefix is still announced via the window name
-        (CustomSlideShowWindow._get_name() → handleSlideChange → reportFocus).
+        The parent class implementation either:
+        - Reads entire slide with sayAll (if autoSayAllOnPageLoad)
+        - Speaks first line (otherwise)
+
+        We always do the second option - announce title, never do sayAll.
+        This gives us the slide title/prefix from _get_name() without
+        reading all shapes, text boxes, etc.
+
+        Args:
+            suppressSayAll: Ignored - we always suppress sayAll
         """
-        log.info("CustomSlideshowTreeInterceptor.reportNewSlide() - suppressing content reading")
-        # Do nothing - suppress automatic content reading
-        pass
+        log.info("CustomSlideshowTreeInterceptor.reportNewSlide() - announcing title only")
+
+        # Get the first line of content (the slide title/number)
+        # This uses the TreeInterceptor's text representation which
+        # includes the window name from _get_name()
+        try:
+            import textInfos
+            import speech
+            import controlTypes
+
+            info = self.selection
+            if not info.isCollapsed:
+                speech.speakPreselectedText(info.text)
+                log.debug(f"reportNewSlide: spoke preselected text")
+            else:
+                info.expand(textInfos.UNIT_LINE)
+                speech.speakTextInfo(
+                    info,
+                    reason=controlTypes.OutputReason.CARET,
+                    unit=textInfos.UNIT_LINE
+                )
+                log.debug(f"reportNewSlide: spoke first line")
+        except Exception as e:
+            log.error(f"reportNewSlide error: {e}")
+            # Fallback: try to announce the root object's name
+            try:
+                if self.rootNVDAObject:
+                    name = self.rootNVDAObject.name
+                    if name:
+                        ui.message(name)
+                        log.info(f"reportNewSlide fallback: announced '{name[:50]}'")
+            except Exception as e2:
+                log.error(f"reportNewSlide fallback error: {e2}")
 
 
 class CustomSlideShowWindow(SlideShowWindow):
