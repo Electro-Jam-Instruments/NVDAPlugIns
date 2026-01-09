@@ -4,6 +4,7 @@
 # v0.0.1: Initial implementation - focus-based detection (didn't work)
 # v0.0.2: Win+H hotkey interception + timer-based window polling
 # v0.0.3: Keypress interception approach (no timers)
+# v0.0.4: Fix gesture passthrough order - send Win+H before installing filter
 #
 # See docs/ folder for full documentation.
 
@@ -14,7 +15,7 @@ import logging
 from scriptHandler import script
 
 log = logging.getLogger(__name__)
-log.info("Windows Dictation Silence: Loading plugin v0.0.3")
+log.info("Windows Dictation Silence: Loading plugin v0.0.4")
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -57,10 +58,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         log.info("Windows Dictation Silence: Win+H pressed")
 
         if not self._voice_typing_active:
-            # Voice Typing is starting - silence NVDA
-            self._start_voice_typing_mode()
-            # Pass through the gesture to actually open Voice Typing
+            # Pass through the gesture FIRST to actually open Voice Typing
             gesture.send()
+            # Then silence NVDA and install filter
+            self._start_voice_typing_mode()
         else:
             # Voice Typing is closing via Win+H again
             gesture.send()
