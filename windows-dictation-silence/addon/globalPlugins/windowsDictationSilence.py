@@ -6,6 +6,7 @@
 # v0.0.3: Keypress interception approach (no timers)
 # v0.0.4: Fix gesture passthrough order - send Win+H before installing filter
 # v0.0.5: Fix repeated Win+H - don't skip Win+H in gesture filter
+# v0.0.6: Fix API - use speech.getState().speechMode instead of getSpeechMode()
 #
 # See docs/ folder for full documentation.
 
@@ -16,7 +17,7 @@ import logging
 from scriptHandler import script
 
 log = logging.getLogger(__name__)
-log.info("Windows Dictation Silence: Loading plugin v0.0.5")
+log.info("Windows Dictation Silence: Loading plugin v0.0.6")
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -68,7 +69,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
     def _start_voice_typing_mode(self):
         """Enter voice typing mode - silence speech and watch for close."""
-        self._previous_speech_mode = speech.getSpeechMode()
+        self._previous_speech_mode = speech.getState().speechMode
         speech.setSpeechMode(speech.SpeechMode.off)
         self._voice_typing_active = True
         self._install_gesture_filter()
