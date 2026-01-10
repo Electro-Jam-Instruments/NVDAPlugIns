@@ -5,6 +5,7 @@
 # v0.0.2: Win+H hotkey interception + timer-based window polling
 # v0.0.3: Keypress interception approach (no timers)
 # v0.0.4: Fix gesture passthrough order - send Win+H before installing filter
+# v0.0.5: Fix repeated Win+H - don't skip Win+H in gesture filter
 #
 # See docs/ folder for full documentation.
 
@@ -15,7 +16,7 @@ import logging
 from scriptHandler import script
 
 log = logging.getLogger(__name__)
-log.info("Windows Dictation Silence: Loading plugin v0.0.4")
+log.info("Windows Dictation Silence: Loading plugin v0.0.5")
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -55,17 +56,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     )
     def script_toggleVoiceTyping(self, gesture):
         """Intercept Win+H to manage speech around Voice Typing."""
-        log.info("Windows Dictation Silence: Win+H pressed")
+        log.info(f"Windows Dictation Silence: Win+H pressed (active={self._voice_typing_active})")
 
+        # Always pass through Win+H to Windows
+        gesture.send()
+
+        # If not active, start voice typing mode (filter will handle the close)
         if not self._voice_typing_active:
-            # Pass through the gesture FIRST to actually open Voice Typing
-            gesture.send()
-            # Then silence NVDA and install filter
             self._start_voice_typing_mode()
-        else:
-            # Voice Typing is closing via Win+H again
-            gesture.send()
-            self._end_voice_typing_mode()
+        # If active, filter already called _end_voice_typing_mode() before we got here
 
     def _start_voice_typing_mode(self):
         """Enter voice typing mode - silence speech and watch for close."""
@@ -113,6 +112,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         """Filter called for every gesture while Voice Typing is active.
 
         Any keypress means Voice Typing is closing, so restore speech.
+        This includes Win+H (which toggles Voice Typing off).
 
         Returns:
             True to allow the gesture to proceed
@@ -120,14 +120,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         if not self._voice_typing_active:
             return True
 
-        # Check if this is a keyboard gesture (not the Win+H we're handling)
+        # Get gesture identifier for logging
         gesture_id = getattr(gesture, 'identifiers', [''])[0] if hasattr(gesture, 'identifiers') else ''
 
-        # Skip if this is our Win+H gesture (handled by script_toggleVoiceTyping)
-        if 'windows+h' in gesture_id.lower():
-            return True
-
-        # Any other key means Voice Typing is closing
+        # ANY key (including Win+H) means Voice Typing is closing
         log.info(f"Windows Dictation Silence: Key pressed ({gesture_id}) - restoring speech")
         self._end_voice_typing_mode()
 
