@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Bump version in NVDA addon manifest.ini
+Bump version in NVDA addon buildVars.py
 
 Usage:
     python bump_version.py <plugin-name> <new-version>
@@ -8,7 +8,7 @@ Usage:
 Example:
     python bump_version.py powerpoint-comments 0.0.2
 
-This script updates the version field in the addon's manifest.ini file.
+This script updates the addon_version field in the addon's buildVars.py file.
 Version updates are MANUAL - only run when explicitly requested.
 """
 
@@ -17,32 +17,32 @@ import re
 from pathlib import Path
 
 
-def get_manifest_path(plugin_name: str) -> Path:
-    """Get path to manifest.ini for a plugin."""
+def get_buildvars_path(plugin_name: str) -> Path:
+    """Get path to buildVars.py for a plugin."""
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent
-    manifest_path = repo_root / plugin_name / "addon" / "manifest.ini"
-    return manifest_path
+    buildvars_path = repo_root / plugin_name / "buildVars.py"
+    return buildvars_path
 
 
-def read_manifest(manifest_path: Path) -> str:
-    """Read manifest.ini content."""
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-    return manifest_path.read_text(encoding="utf-8")
+def read_buildvars(buildvars_path: Path) -> str:
+    """Read buildVars.py content."""
+    if not buildvars_path.exists():
+        raise FileNotFoundError(f"buildVars.py not found: {buildvars_path}")
+    return buildvars_path.read_text(encoding="utf-8")
 
 
 def update_version(content: str, new_version: str) -> tuple[str, str]:
     """
-    Update version in manifest content.
+    Update version in buildVars content.
     Returns (updated_content, old_version).
     """
-    # Match version line: version = X.X.X
-    pattern = r"^(version\s*=\s*)(\d+\.\d+\.\d+)(.*)$"
+    # Match addon_version line: "addon_version": "X.X.X"
+    pattern = r'("addon_version"\s*:\s*")(\d+\.\d+\.\d+)(")'
 
-    match = re.search(pattern, content, re.MULTILINE)
+    match = re.search(pattern, content)
     if not match:
-        raise ValueError("Could not find version line in manifest.ini")
+        raise ValueError("Could not find addon_version in buildVars.py")
 
     old_version = match.group(2)
 
@@ -50,8 +50,7 @@ def update_version(content: str, new_version: str) -> tuple[str, str]:
     updated = re.sub(
         pattern,
         f"\\g<1>{new_version}\\g<3>",
-        content,
-        flags=re.MULTILINE
+        content
     )
 
     return updated, old_version
@@ -78,12 +77,12 @@ def main():
         print("Version must be in format: X.X.X (e.g., 0.0.1, 1.2.3)")
         sys.exit(1)
 
-    # Get manifest path
-    manifest_path = get_manifest_path(plugin_name)
+    # Get buildVars path
+    buildvars_path = get_buildvars_path(plugin_name)
 
     try:
-        # Read current manifest
-        content = read_manifest(manifest_path)
+        # Read current buildVars
+        content = read_buildvars(buildvars_path)
 
         # Update version
         updated_content, old_version = update_version(content, new_version)
@@ -92,14 +91,14 @@ def main():
             print(f"Version is already {new_version}")
             sys.exit(0)
 
-        # Write updated manifest
-        manifest_path.write_text(updated_content, encoding="utf-8")
+        # Write updated buildVars
+        buildvars_path.write_text(updated_content, encoding="utf-8")
 
         print(f"Updated {plugin_name} version: {old_version} -> {new_version}")
-        print(f"File: {manifest_path}")
+        print(f"File: {buildvars_path}")
         print("")
         print("Next steps:")
-        print(f"  1. git add {manifest_path.relative_to(manifest_path.parent.parent.parent)}")
+        print(f"  1. git add {buildvars_path.relative_to(buildvars_path.parent.parent)}")
         print(f'  2. git commit -m "Bump {plugin_name} to v{new_version}"')
         print(f"  3. git push origin main")
         print(f"  4. git tag {plugin_name}-v{new_version}-beta  # or without -beta for release")

@@ -4,6 +4,8 @@
 #
 # Beta tags (ending in -beta) create pre-releases
 # Release tags (no suffix) create stable releases
+#
+# Uses standard NVDA scons build system
 
 name: Build NVDA Addon
 
@@ -25,6 +27,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install scons
+          pip install Markdown
 
       - name: Parse tag info
         id: tag_info
@@ -51,32 +59,33 @@ jobs:
 
           echo "Parsed: plugin=$PLUGIN_NAME, version=$VERSION, tag=$TAG"
 
-      - name: Validate manifest version
+      - name: Validate buildVars version
         run: |
           PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
           TAG_VERSION="${{ steps.tag_info.outputs.version }}"
 
-          MANIFEST_PATH="$PLUGIN_NAME/addon/manifest.ini"
+          BUILDVARS_PATH="$PLUGIN_NAME/buildVars.py"
 
-          if [ ! -f "$MANIFEST_PATH" ]; then
-            echo "Error: manifest.ini not found at $MANIFEST_PATH"
+          if [ ! -f "$BUILDVARS_PATH" ]; then
+            echo "Error: buildVars.py not found at $BUILDVARS_PATH"
             exit 1
           fi
 
-          MANIFEST_VERSION=$(grep -oP '^version\s*=\s*\K[0-9]+\.[0-9]+\.[0-9]+' "$MANIFEST_PATH")
+          BUILDVARS_VERSION=$(grep -oP 'addon_version.*"\K[0-9]+\.[0-9]+\.[0-9]+' "$BUILDVARS_PATH")
 
-          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "Error: Tag version ($TAG_VERSION) does not match manifest version ($MANIFEST_VERSION)"
-            echo "Please update manifest.ini using: python build-tools/bump_version.py $PLUGIN_NAME $TAG_VERSION"
+          if [ "$TAG_VERSION" != "$BUILDVARS_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match buildVars version ($BUILDVARS_VERSION)"
+            echo "Please update buildVars.py addon_version to $TAG_VERSION"
             exit 1
           fi
 
           echo "Version validated: $TAG_VERSION"
 
-      - name: Build addon
+      - name: Build addon with scons
         run: |
           PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
-          python build-tools/build_addon.py "$PLUGIN_NAME"
+          cd "$PLUGIN_NAME"
+          scons
 
       - name: Find built addon
         id: find_addon
@@ -84,15 +93,19 @@ jobs:
           PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
           VERSION="${{ steps.tag_info.outputs.version }}"
 
-          ADDON_FILE="$PLUGIN_NAME/$PLUGIN_NAME-$VERSION.nvda-addon"
+          # Find the built addon file (name comes from buildVars addon_name)
+          ADDON_FILE=$(find "$PLUGIN_NAME" -maxdepth 1 -name "*.nvda-addon" -type f | head -1)
 
-          if [ ! -f "$ADDON_FILE" ]; then
-            echo "Error: Built addon not found at $ADDON_FILE"
+          if [ -z "$ADDON_FILE" ] || [ ! -f "$ADDON_FILE" ]; then
+            echo "Error: Built addon not found in $PLUGIN_NAME/"
             exit 1
           fi
 
+          ADDON_BASENAME=$(basename "$ADDON_FILE")
+
           echo "addon_path=$ADDON_FILE" >> $GITHUB_OUTPUT
-          echo "addon_name=$PLUGIN_NAME-$VERSION.nvda-addon" >> $GITHUB_OUTPUT
+          echo "addon_name=$ADDON_BASENAME" >> $GITHUB_OUTPUT
+          echo "Found addon: $ADDON_FILE"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
