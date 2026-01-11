@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.79"
+ADDON_VERSION = "0.0.80"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -1356,12 +1356,12 @@ class CustomSlide(Slide):
     """Enhanced Slide that announces notes/comments status before slide name.
 
     v0.0.76: Implements lazy _get_name() override pattern.
+    v0.0.80: Query fresh data directly from ppObject to fix race condition.
+             Previously used worker thread cache which could be stale.
 
     NVDA's Slide._get_name() is called LAZILY when NVDA needs to announce.
-    By the time NVDA calls this method, our worker thread has already
-    updated the cache with the correct data for the current slide.
-
-    This is the same pattern used for CustomSlideShowWindow in slideshow mode.
+    We query the PowerPoint COM object directly via self.ppObject to ensure
+    we always get accurate data for THIS specific slide.
 
     Example announcements:
     - With notes and comments: "has notes, Has 2 comments, Slide 3 (Title)"
@@ -1369,12 +1369,48 @@ class CustomSlide(Slide):
     - No notes/comments: "Slide 3 (Title)" (unchanged from base)
     """
 
+    def _get_comment_count(self):
+        """Get comment count for this slide directly from COM.
+
+        v0.0.80: Query fresh data to avoid race condition with worker thread.
+
+        Returns:
+            int: Number of comments on this slide
+        """
+        try:
+            # self.ppObject is the PowerPoint Slide COM object
+            return self.ppObject.Comments.Count
+        except Exception as e:
+            log.debug(f"CustomSlide._get_comment_count: Error - {e}")
+            return 0
+
+    def _has_meeting_notes(self):
+        """Check if this slide has meeting notes (marked with ****).
+
+        v0.0.80: Query fresh data to avoid race condition with worker thread.
+
+        Returns:
+            bool: True if slide has notes containing **** markers
+        """
+        try:
+            # Access notes via NotesPage placeholder
+            notes_page = self.ppObject.NotesPage
+            # Placeholder 2 is the notes body text
+            placeholder = notes_page.Shapes.Placeholders(2)
+            if placeholder.HasTextFrame:
+                text_frame = placeholder.TextFrame
+                if text_frame.HasText:
+                    notes_text = text_frame.TextRange.Text
+                    return '****' in notes_text
+        except Exception as e:
+            log.debug(f"CustomSlide._has_meeting_notes: Error - {e}")
+        return False
+
     def _get_name(self):
         """Get slide name with notes/comments prefix prepended.
 
-        This method is called lazily by NVDA when it needs the name.
-        By this point, the worker thread has already queried COM and
-        updated the cache with correct data for the current slide.
+        v0.0.80: Query fresh data directly from ppObject instead of worker cache.
+        This fixes the race condition where worker cache was 1 slide behind.
 
         Returns:
             str: Slide name with optional prefix
@@ -1383,37 +1419,31 @@ class CustomSlide(Slide):
         # Format: "Slide N (Title)" or "Slide N" if no title
         base_name = super()._get_name()
 
-        # DEBUG v0.0.79: Log slide number investigation
-        log.info(f"CustomSlide._get_name DEBUG: base_name from parent='{base_name}'")
-
-        # Access the AppModule's worker to get cached data
-        global _current_app_module
-        if _current_app_module is None:
-            log.debug("CustomSlide._get_name: No app module reference")
+        # v0.0.80: Query fresh data directly from this slide's COM object
+        # This eliminates the race condition with the worker thread cache
+        try:
+            slide_number = self.ppObject.slideNumber
+            log.info(f"CustomSlide._get_name: Querying fresh data for slide {slide_number}")
+        except Exception as e:
+            log.debug(f"CustomSlide._get_name: Could not get slide number - {e}")
             return base_name
 
-        worker = getattr(_current_app_module, '_worker', None)
-        if not worker or not getattr(worker, '_initialized', False):
-            log.debug("CustomSlide._get_name: Worker not ready")
-            return base_name
-
-        # DEBUG v0.0.79: Log worker's slide index for off-by-one investigation
-        worker_slide_idx = getattr(worker, '_last_announced_slide', -1)
-        log.info(f"CustomSlide._get_name DEBUG: worker _last_announced_slide={worker_slide_idx}")
-
-        # Build prefix from cached values (worker has already updated these)
+        # Build prefix from fresh COM queries
         prefix_parts = []
 
-        has_notes = getattr(worker, '_last_has_notes', False)
-        if has_notes:
+        # Check for meeting notes (marked with ****)
+        if self._has_meeting_notes():
             prefix_parts.append("has notes")
+            log.debug(f"CustomSlide._get_name: Slide {slide_number} has meeting notes")
 
-        comment_count = getattr(worker, '_last_comment_count', 0)
+        # Check comment count
+        comment_count = self._get_comment_count()
         if comment_count > 0:
             if comment_count == 1:
                 prefix_parts.append("Has 1 comment")
             else:
                 prefix_parts.append(f"Has {comment_count} comments")
+            log.debug(f"CustomSlide._get_name: Slide {slide_number} has {comment_count} comments")
 
         if prefix_parts:
             prefix = ", ".join(prefix_parts)
@@ -1421,7 +1451,7 @@ class CustomSlide(Slide):
             log.info(f"CustomSlide._get_name: Returning '{result[:60]}...'")
             return result
 
-        log.debug(f"CustomSlide._get_name: No prefix, returning base name")
+        log.debug(f"CustomSlide._get_name: Slide {slide_number} - no prefix needed")
         return base_name
 
 
