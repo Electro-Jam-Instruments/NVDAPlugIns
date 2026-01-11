@@ -2,9 +2,7 @@
 
 ## Overview
 
-This document defines the multi-plugin repository structure for all NVDA accessibility plugins developed by Electro Jam Instruments.
-
-## Repository Name
+Multi-plugin repository for NVDA accessibility addons developed by Electro Jam Instruments.
 
 **GitHub Repo:** `Electro-Jam-Instruments/NVDAPlugIns`
 **URL:** https://github.com/Electro-Jam-Instruments/NVDAPlugIns
@@ -12,200 +10,133 @@ This document defines the multi-plugin repository structure for all NVDA accessi
 ## Directory Structure
 
 ```
-NVDA-Plugins/
+NVDAPlugIns/
 │
 ├── README.md                    # Repository index - lists all plugins
-├── LICENSE                      # MIT or GPL (NVDA compatible)
-├── CONTRIBUTING.md              # Contribution guidelines
+├── CHANGELOG.md                 # Repository-level changelog
+├── CLAUDE.md                    # Repository-level dev instructions
+├── REPO_STRUCTURE.md            # This file
+├── LICENSE
+│
 ├── .github/
 │   └── workflows/
 │       └── build-addon.yml      # Shared GitHub Actions workflow
 │
-├── build-tools/                 # Shared build utilities
-│   ├── build_addon.py           # Script to package .nvda-addon files
-│   └── bump_version.py          # Script to update version in manifest.ini
+├── .claude/
+│   ├── commands/
+│   │   └── deploy.md            # Deployment skill
+│   └── skills/
+│
+├── docs/                        # Shared documentation & experts
+│   └── experts/
+│       └── expert-uia.md        # General UIA patterns (referenced by plugins)
 │
 ├── powerpoint-comments/         # PowerPoint Comments Plugin
-│   ├── README.md                # Plugin-specific documentation
-│   ├── CHANGELOG.md             # Version history
+│   ├── README.md                # User-facing documentation
+│   ├── CHANGELOG.md             # Plugin version history
+│   ├── CLAUDE.md                # Plugin-specific dev instructions
 │   ├── buildVars.py             # Plugin build configuration
+│   ├── sconstruct               # Scons build script
+│   ├── manifest.ini.tpl         # Addon manifest template
+│   ├── manifest-translated.ini.tpl
+│   ├── site_scons/              # Scons helpers
 │   ├── addon/
 │   │   ├── manifest.ini         # NVDA addon manifest
-│   │   ├── appModules/
-│   │   │   └── powerpnt.py      # PowerPoint app module
-│   │   ├── globalPlugins/
-│   │   │   └── pptCommentNav.py # Global plugin (if needed)
-│   │   └── locale/              # Translations (future)
-│   │       └── en/
-│   │           └── LC_MESSAGES/
-│   └── tests/                   # Plugin-specific tests
-│       └── test_comment_detection.py
-│
-├── future-plugin-2/             # Template for next plugin
-│   ├── README.md
-│   ├── CHANGELOG.md
-│   ├── buildVars.py
-│   ├── addon/
-│   │   ├── manifest.ini
-│   │   ├── appModules/
-│   │   └── globalPlugins/
+│   │   └── appModules/
+│   │       └── powerpnt.py      # PowerPoint app module
+│   ├── docs/                    # Plugin-specific docs
+│   │   ├── experts/             # PPT-specific experts
+│   │   ├── history/             # Development history
+│   │   └── research/            # Research notes
 │   └── tests/
+│       └── resources/           # Test files (presentations, etc.)
 │
-└── test-resources/              # Shared test files
-    ├── create_test_presentation.py
-    └── Guide_Dogs_Test_Deck.pptx
+├── windows-dictation-silence/   # Windows Voice Typing Silence Plugin
+│   ├── README.md                # User-facing documentation
+│   ├── CHANGELOG.md             # Plugin version history
+│   ├── CLAUDE.md                # Plugin-specific dev instructions
+│   ├── buildVars.py             # Plugin build configuration
+│   ├── sconstruct               # Scons build script
+│   ├── manifest.ini.tpl         # Addon manifest template
+│   ├── manifest-translated.ini.tpl
+│   ├── site_scons/              # Scons helpers
+│   ├── addon/
+│   │   ├── manifest.ini         # NVDA addon manifest
+│   │   └── globalPlugins/
+│   │       └── windowsDictationSilence.py
+│   └── docs/                    # Plugin-specific docs
+│
+├── deletedocs/                  # Archived/deprecated documentation
+└── localdocs/                   # Local-only documentation (not deployed)
 ```
+
+## Plugin Types
+
+| Plugin | Type | Scope |
+|--------|------|-------|
+| powerpoint-comments | AppModule | PowerPoint only |
+| windows-dictation-silence | GlobalPlugin | System-wide |
+
+## Build System
+
+All plugins use the standard NVDA scons build system:
+
+```bash
+cd {plugin-folder}
+scons
+# Output: {plugin-name}.nvda-addon
+```
+
+Each plugin is self-contained with its own:
+- `buildVars.py` - version and metadata
+- `sconstruct` - build script
+- `manifest.ini.tpl` - manifest template
+- `site_scons/` - scons helpers
 
 ## Release Strategy
 
-**Full documentation: See [RELEASE.md](RELEASE.md)**
+**Deployment:** Use `/deploy` command. See `.claude/commands/deploy.md`
 
-### Release Types
-
-| Type | Tag Pattern | GitHub Release |
-|------|-------------|----------------|
-| Beta | `pluginname-vX.X.X-beta` | Pre-release |
-| Release | `pluginname-vX.X.X` | Stable |
-
-### Tagging Convention
+### Tag Format (CRITICAL)
 
 ```
-powerpoint-comments-v0.0.1-beta  # Beta for testing
-powerpoint-comments-v0.0.1       # Stable release
-powerpoint-comments-v0.0.2-beta  # Next beta
+{plugin-name}-v{VERSION}[-beta]
 ```
 
-### Release Workflow (Automated)
+Examples:
+- `powerpoint-comments-v0.0.14-beta` - Beta release
+- `powerpoint-comments-v1.0.0` - Stable release
+- `windows-dictation-silence-v0.0.6-beta` - Beta release
 
-1. **Update version** (manual, only when requested):
-   ```bash
-   python build-tools/bump_version.py powerpoint-comments 0.0.1
-   git add powerpoint-comments/addon/manifest.ini
-   git commit -m "Bump powerpoint-comments to v0.0.1"
-   git push origin main
-   ```
+**WARNING:** Tags without plugin prefix (e.g., `v0.0.1-beta`) will NOT trigger builds!
 
-2. **Create and push tag:**
-   ```bash
-   git tag powerpoint-comments-v0.0.1-beta  # or without -beta
-   git push origin powerpoint-comments-v0.0.1-beta
-   ```
+### Release Workflow
 
-3. **GitHub Actions automatically:**
-   - Validates tag version matches manifest.ini
-   - Builds .nvda-addon package
-   - Creates GitHub release (pre-release for beta)
-   - Uploads addon file
+1. Update version in `{plugin}/buildVars.py`
+2. Commit and push changes
+3. Create and push tag: `git tag -a {plugin}-v{VERSION}-beta -m "Description"`
+4. GitHub Actions builds and publishes automatically
 
 ### Download URLs
 
-After automated release:
+- Latest beta: `https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/{plugin}-latest-beta.nvda-addon`
+- Specific version: `https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/{plugin}-{VERSION}.nvda-addon`
 
-```
-https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.0.1-beta/powerpoint-comments-0.0.1.nvda-addon
-```
+## Documentation Hierarchy
 
-### Version Management
-
-**IMPORTANT:** Version updates are manual and controlled.
-
-- NVDA only loads addons when version changes
-- Always bump version before testing on a system with addon installed
-- Use `bump_version.py` script to update manifest.ini
-
-## Build Process
-
-### Building a Single Plugin
-
-```bash
-python build-tools/build_addon.py powerpoint-comments
-# Output: powerpoint-comments/powerpoint-comments-0.0.1.nvda-addon
-```
-
-### manifest.ini Template
-
-**CRITICAL: Quoting rules matter! See notes below.**
-
-```ini
-name = powerPointComments
-summary = "Accessible PowerPoint Comment Navigation"
-description = """Navigate and read PowerPoint comments with keyboard shortcuts and automatic announcements."""
-author = "Electro Jam Instruments <contact@electrojam.com>"
-url = https://github.com/Electro-Jam-Instruments/NVDAPlugIns/tree/main/powerpoint-comments
-version = 0.0.1
-minimumNVDAVersion = 2023.1
-lastTestedNVDAVersion = 2024.4
-```
-
-**manifest.ini Quoting Rules:**
-| Field Type | Quote Style | Example |
-|------------|-------------|---------|
-| Single word (no spaces) | No quotes | `name = addonName` |
-| Single line WITH spaces | `"double quotes"` | `summary = "My Addon"` |
-| Multi-line text | `"""triple quotes"""` | `description = """Text"""` |
-| Version/URL | No quotes | `version = 1.0.0` |
-
-**If NVDA rejects your addon, check quoting first!**
-
-### buildVars.py Template
-
-```python
-addon_info = {
-    "addon_name": "powerpoint-comments",
-    "addon_summary": "Accessible PowerPoint Comment Navigation",
-    "addon_description": "Navigate and read PowerPoint comments with keyboard shortcuts",
-    "addon_version": "0.0.1",
-    "addon_author": "Electro Jam Instruments",
-    "addon_url": "https://github.com/Electro-Jam-Instruments/NVDAPlugIns",
-    "addon_minimumNVDAVersion": "2023.1",
-    "addon_lastTestedNVDAVersion": "2024.4",
-}
-```
+| Level | Location | Purpose |
+|-------|----------|---------|
+| Repository | `/CLAUDE.md` | Overview, links to plugins |
+| Repository | `/docs/experts/` | Shared knowledge (UIA, etc.) |
+| Plugin | `/{plugin}/CLAUDE.md` | Critical patterns for that plugin |
+| Plugin | `/{plugin}/docs/` | Plugin-specific docs and experts |
 
 ## Plugin Independence
 
 Each plugin is **self-contained**:
-- Has its own README, CHANGELOG, version
+- Has its own README, CLAUDE.md, version
 - Can be released independently
-- Has its own test suite
+- Has its own documentation and tests
 - No cross-plugin dependencies
 
-Shared resources in `build-tools/` are for convenience only.
-
-## GitHub Repository Settings
-
-### Recommended Settings
-
-1. **Branch protection** on `main`:
-   - Require PR reviews for production releases
-   - Allow direct pushes for development (optional)
-
-2. **Release settings**:
-   - Use tag-based releases
-   - Mark beta versions as "pre-release"
-
-3. **Topics/Tags** for discoverability:
-   - `nvda`, `nvda-addon`, `accessibility`, `screen-reader`, `powerpoint`
-
-## Migration from Current Structure
-
-Current project location:
-```
-30 - A11Y PowerPoint NVDA Plug-In/
-├── MVP_IMPLEMENTATION_PLAN.md
-├── REPO_STRUCTURE.md (this file)
-├── research/
-└── test_resources/
-```
-
-When creating GitHub repo:
-1. Create `NVDA-Plugins` repo on GitHub
-2. Reorganize locally into `powerpoint-comments/` subdirectory
-3. Move shared test resources to `test-resources/`
-4. Push to GitHub
-
-## Version History
-
-| Date | Version | Notes |
-|------|---------|-------|
-| 2024-12-08 | 1.0 | Initial structure definition |
+Shared resources (`docs/experts/`) are optional conveniences.

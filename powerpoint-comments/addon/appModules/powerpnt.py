@@ -9,7 +9,7 @@
 # Uses: from nvdaBuiltin.appModules.xxx import * then class AppModule(AppModule)
 
 # Addon version - update this and manifest.ini together
-ADDON_VERSION = "0.0.78"
+ADDON_VERSION = "0.0.79"
 
 # Import logging FIRST so we can log any import issues
 import logging
@@ -1311,6 +1311,9 @@ class CustomSlideShowWindow(SlideShowWindow):
             log.debug("CustomSlideShowWindow._get_name: Cache not ready")
             return super()._get_name()
 
+        # DEBUG v0.0.79: Log for off-by-one investigation
+        log.info(f"CustomSlideShowWindow._get_name DEBUG: _last_announced_slide={getattr(worker, '_last_announced_slide', -1)}")
+
         # Build prefix from cached values
         prefix_parts = []
 
@@ -1380,6 +1383,9 @@ class CustomSlide(Slide):
         # Format: "Slide N (Title)" or "Slide N" if no title
         base_name = super()._get_name()
 
+        # DEBUG v0.0.79: Log slide number investigation
+        log.info(f"CustomSlide._get_name DEBUG: base_name from parent='{base_name}'")
+
         # Access the AppModule's worker to get cached data
         global _current_app_module
         if _current_app_module is None:
@@ -1390,6 +1396,10 @@ class CustomSlide(Slide):
         if not worker or not getattr(worker, '_initialized', False):
             log.debug("CustomSlide._get_name: Worker not ready")
             return base_name
+
+        # DEBUG v0.0.79: Log worker's slide index for off-by-one investigation
+        worker_slide_idx = getattr(worker, '_last_announced_slide', -1)
+        log.info(f"CustomSlide._get_name DEBUG: worker _last_announced_slide={worker_slide_idx}")
 
         # Build prefix from cached values (worker has already updated these)
         prefix_parts = []

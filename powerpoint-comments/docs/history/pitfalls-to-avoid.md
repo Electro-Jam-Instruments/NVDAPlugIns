@@ -261,6 +261,53 @@ def WindowSelectionChange(self, sel):
 
 ---
 
+## Pitfall 13: self.currentSlide is NVDA Wrapper, Not COM Object
+
+**What we tried (v0.0.63):**
+```python
+class CustomSlideShowWindow(SlideShowWindow):
+    def _check_slide_has_notes(self):
+        notes_page = self.currentSlide.NotesPage  # Access COM property
+```
+
+**What happened:** `AttributeError: 'Slide' object has no attribute 'NotesPage'`
+
+**Why it failed:** In overlay classes, `self.currentSlide` is an NVDA wrapper object, NOT a PowerPoint COM object. It has NVDA properties (`appModule`, `TextInfo`, `APIClass`) not COM properties (`NotesPage`, `SlideIndex`).
+
+**The fix:** Access COM data via worker thread which has the actual COM connection:
+```python
+# Worker thread has the COM object
+slide = self._slideshow_window.View.Slide  # Actual COM object
+notes_page = slide.NotesPage  # Works
+```
+
+---
+
+## Pitfall 14: _get_name() Not Called in All Contexts
+
+**What we tried (v0.0.61):**
+```python
+class CustomSlideShowWindow(SlideShowWindow):
+    def _get_name(self):
+        # Prepend notes info
+        return f"has notes, {super()._get_name()}"
+```
+
+**What happened:** `_get_name()` was NEVER called during slideshow mode.
+
+**Why it failed:** In slideshow mode, NVDA uses `handleSlideChange()` → `reportFocus()` flow instead of the normal focus event flow that calls `_get_name()`.
+
+**The fix:** Override `reportFocus()` for slideshow, or use TreeInterceptor's `reportNewSlide()`:
+```python
+def reportFocus(self):
+    # Called in slideshow - can prepend info here
+    if has_notes:
+        ui.message("has notes")
+    super().reportFocus()
+```
+
+---
+
 ## Quick Reference: What Works
 
 | Task | Wrong Approach | Right Approach |
@@ -275,3 +322,5 @@ def WindowSelectionChange(self, sel):
 | PPT string parsing | Direct string ops | Normalize whitespace first |
 | First slideshow slide | SlideShowNextSlide | Cache in SlideShowBegin |
 | Multi-window slide access | `ActiveWindow.View.Slide` | `sel.Parent.View.Slide` |
+| Overlay COM access | `self.currentSlide.NotesPage` | Worker thread COM object |
+| Slideshow name override | `_get_name()` | `reportFocus()` or TreeInterceptor |

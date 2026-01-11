@@ -26,6 +26,12 @@ Deploy a new version of the powerpoint-comments addon.
 **CRITICAL: Use correct format!**
 - Tag format MUST be: `powerpoint-comments-vX.X.X-beta`
 - NOT: `vX.X.X-beta` (this will NOT trigger the build!)
+- The workflow trigger pattern is `*-v[0-9]+.[0-9]+.[0-9]+*` which REQUIRES the plugin name prefix
+
+**Common Mistakes to Avoid:**
+- Using `v0.0.X-beta` instead of `powerpoint-comments-v0.0.X-beta` (builds never triggered)
+- Forgetting to update manifest.ini version (installed addon doesn't change)
+- Not verifying the build actually ran after pushing tag
 
 Commands:
 ```bash

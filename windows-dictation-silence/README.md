@@ -1,89 +1,56 @@
-# Windows Dictation Silence - NVDA Plugin
+# Windows Dictation Silence - NVDA Add-on
 
-Auto-silence NVDA speech when Windows Voice Typing (Win+H) is active.
+Use voice typing without hearing everything echoed back.
 
-## Problem Statement
+## What It Does
 
-When using Windows Voice Typing (Win+H), NVDA echoes back the dictated text as it appears in the text field. This creates an annoying feedback loop where you hear everything you say repeated back to you.
+When you use Windows Voice Typing (Win+H), NVDA normally reads back every word as it appears. This creates an annoying echo where you hear yourself repeated constantly.
 
-**User's goal:** When Win+H is pressed to start dictation, NVDA should automatically go silent. When dictation ends, speech should restore.
+This add-on fixes that:
 
-## Current Status: v0.0.2 - Work In Progress
+- **Press Win+H** - NVDA goes silent automatically
+- **Start dictating** - No more echo, just your voice
+- **Press any key** - NVDA speech comes back instantly
 
-The current implementation uses timer-based polling which the user doesn't like. Need to switch to keypress interception approach.
+Your previous speech settings are preserved. If you had NVDA in "beeps" mode, it returns to beeps. If you had it in normal speech mode, it returns to that.
 
-## Key Technical Findings
+## How to Use
 
-### Voice Typing Behavior (Windows 11)
+1. Press `Win+H` to open Windows Voice Typing
+2. Dictate your text - NVDA stays quiet
+3. Press any key (like Escape, or just start typing) to close Voice Typing
+4. NVDA speech is back
 
-1. **Win+H opens Voice Typing** - A floating overlay appears
-2. **"Listening..." tooltip** shows when actively listening
-3. **Any keypress closes it** - Voice Typing dismisses on any keyboard input
-4. **Focus stays in original app** - The overlay doesn't take focus
-5. **Text echo is the problem** - NVDA reads UIA name change events as text is inserted
+That's it. No settings to configure, no extra shortcuts to remember.
 
-### Why Built-in NVDA Fix Doesn't Work
+## Installation
 
-NVDA issue #12938 mentions "selective UIA event registration" should suppress dictation text in Windows 11 22H2+. The user has:
-- Latest public NVDA release
-- Windows 11 latest
-- Setting: "Registration for UI Automation events and property changes: Automatic (prefer selective)"
+**Download:** [Latest Version](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest-beta.nvda-addon)
 
-Yet text echo still occurs. This plugin is needed to fill the gap.
+1. Click the download link above
+2. Open the downloaded file
+3. Restart NVDA when prompted
 
-### Detection Challenges
+## Requirements
 
-1. **No focus event** - Voice Typing overlay doesn't take focus
-2. **No close notification** - Windows doesn't broadcast when Voice Typing closes
-3. **TextInputHost.exe** - Voice Typing UI runs in this process with `Windows.UI.Core.CoreWindow` class
+- NVDA 2024.1 or later
+- Windows 11
+- Windows Voice Typing enabled (built into Windows)
 
-## Proposed Approaches
+## Why This Exists
 
-### Approach A: Timer-Based Polling (Current - v0.0.2)
-- Win+H → speech OFF → poll every 300ms for window existence
-- **Pro:** Detects window close reliably
-- **Con:** User doesn't like timers
+Windows 11 includes Voice Typing, activated with Win+H. It's a handy way to dictate text in any application. However, NVDA announces each word as it appears in the text field, creating a distracting echo effect.
 
-### Approach B: Keypress Interception (Preferred)
-- Win+H → speech OFF + hook keyboard
-- Any subsequent keypress → restore speech + unhook + pass key through
-- **Pro:** No timers, instant response
-- **Con:** More complex, need to handle edge cases
+NVDA has a built-in setting that's supposed to help ("selective UIA event registration"), but it doesn't fully solve the problem. This add-on provides a simple, reliable fix.
 
-### Approach C: Hybrid
-- Win+H → speech OFF
-- Monitor for specific close signals (Escape, clicking X, etc.)
+## Version History
 
-## Files
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-```
-windows-dictation-silence/
-├── addon/
-│   ├── manifest.ini              # Plugin metadata
-│   └── globalPlugins/
-│       └── windowsDictationSilence.py  # Main plugin code
-├── docs/
-│   ├── architecture-decisions.md # Technical decisions
-│   └── implementation-notes.md   # Implementation details
-└── README.md                     # This file
-```
+## Get Help
 
-## Installation (Testing)
+Visit [community.electro-jam.com](https://community.electro-jam.com) for support and discussion.
 
-1. Copy `windowsDictationSilence.py` to `%APPDATA%\nvda\scratchpad\globalPlugins\`
-2. Enable scratchpad in NVDA: Settings > Advanced > Enable loading custom code
-3. Restart NVDA or press NVDA+Ctrl+F3
-4. Test with Win+H
+## License
 
-## Next Steps
-
-1. Implement Approach B (keypress interception)
-2. Test with real dictation workflow
-3. Handle edge cases (Escape to close, click X, etc.)
-4. Package as .nvda-addon
-
-## References
-
-- [NVDA Issue #12938: Silence NVDA while Dictation is actively listening](https://github.com/nvaccess/nvda/issues/12938)
-- [DictationBridge Add-on](https://coolblindtech.com/dictation-bridge-brings-nvda-users-access-to-speech-recognition-software/)
-- NVDA Global Plugin development guide
+MIT License

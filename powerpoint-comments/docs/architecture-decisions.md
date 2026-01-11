@@ -161,3 +161,60 @@ def event_appModule_gainFocus(self):
 ```
 
 Worker thread is preferred because it has no arbitrary delays and provides proper lifecycle management.
+
+---
+
+## Decision 12: COM for Data, UIA for Focus
+
+**Choice:** Use COM API to read comment data, UIA to manage Comments pane focus
+
+**Why:**
+- COM provides reliable access to `Slide.Comments` collection
+- Comments pane is UIA-enabled (NetUIHWNDElement)
+- UIA focus more reliable than COM selection for UI elements
+
+---
+
+## Decision 13: Auto-Switch to Normal View
+
+**Choice:** Auto-switch to Normal view when accessing comments
+
+**Why:**
+- Comments pane only accessible in Normal view
+- User should not have to manually switch
+- `ActiveWindow.ViewType = 9` is reliable
+
+**ViewType Constants:**
+- Normal = 9, Slide Sorter = 5, Notes = 10, Outline = 6, Slide Master = 3, Reading = 50
+
+---
+
+## Decision 14: @Mention Detection via Regex
+
+**Choice:** Parse @mentions from comment text using regex pattern
+
+**Why:**
+- No structured mention data in COM API
+- @mentions stored as plain text in `Comment.Text`
+- Regex with fuzzy matching handles name variations
+
+---
+
+## Decision 15: Open Comments Pane via ExecuteMso
+
+**Choice:** Use `CommandBars.ExecuteMso("ReviewShowComments")` to open pane
+
+**Why:**
+- Most reliable way to ensure pane is visible
+- Try multiple command names for Office version compatibility
+- Fallback commands: "ShowComments", "CommentsPane"
+
+---
+
+## Decision 16: Flat Comment List (Deferred Threading)
+
+**Choice:** Treat all comments as flat list, defer thread reply navigation
+
+**Why:**
+- Modern comments support reply threads but flat list is simpler
+- Thread navigation is post-MVP enhancement

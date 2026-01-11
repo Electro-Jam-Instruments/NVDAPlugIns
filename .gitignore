@@ -1,6 +1,12 @@
 # Archive folder - old/superseded content
 archive/
 
+# Local docs - not for git (unpublished research, drafts)
+localdocs/
+
+# Docs pending deletion review
+deletedocs/
+
 # Python
 __pycache__/
 *.py[cod]
