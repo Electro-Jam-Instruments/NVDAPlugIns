@@ -1,4 +1,4 @@
-# NVDA Plugins by Electro Jam Instruments
+# NVDA Plugins by ElectroJam Instruments
 
 Practical tools to make your daily workflows more accessible with NVDA.
 
