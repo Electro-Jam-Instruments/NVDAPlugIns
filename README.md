@@ -4,7 +4,7 @@ Practical tools to make your daily workflows more accessible with NVDA.
 
 ## What's Here
 
-We build NVDA add-ons that solve real problems for screen reader users. Each plugin focuses on one thing and does it well.
+These NVDA add-ons aim to help screen reader users working with Microsoft Office and other Windows applications. Each plugin focuses on one thing and works to enable a custom workflow, such as having faster access to comments in PowerPoint.
 
 | Plugin | What It Does | Download |
 |--------|--------------|----------|
@@ -41,7 +41,7 @@ Each plugin has its own documentation with full feature lists and keyboard short
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, or visit the forum to discuss ideas.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, or visit the forum to discuss ideas.
 
 ## License
 
@@ -49,4 +49,4 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ---
 
-**Electro Jam Instruments** - Making accessibility practical.
+**Electro Jam Instruments** - Accessibility tools for everyday workflows.
