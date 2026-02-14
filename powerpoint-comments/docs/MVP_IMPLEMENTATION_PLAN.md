@@ -65,7 +65,7 @@ Located in `test_resources/`:
 
 | Asset | Purpose |
 |-------|---------|
-| `Guide_Dogs_Test_Deck.pptx` | Main test presentation |
+| `Guide_Dogs_Example_Deck.pptx` | Main test presentation |
 | `create_test_presentation.py` | Script to regenerate test deck |
 
 ### Test Deck Contents
@@ -270,7 +270,7 @@ def _verify_connection(self):
 
 **Test Setup:**
 1. Open NVDA
-2. Open PowerPoint with `Guide_Dogs_Test_Deck.pptx`
+2. Open PowerPoint with `Guide_Dogs_Example_Deck.pptx`
 3. Load plugin in NVDA scratchpad
 
 **Tests:**
@@ -510,7 +510,7 @@ def _open_comments_pane(self):
 ### 2.4 Phase 2 Test Checklist
 
 **Test Setup:**
-1. Open `Guide_Dogs_Test_Deck.pptx`
+1. Open `Guide_Dogs_Example_Deck.pptx`
 2. Load plugin
 3. Go to Slide 1
 
@@ -634,7 +634,7 @@ def _focus_first_comment(self):
 ### 3.3 Phase 3 Test Checklist
 
 **Test Setup:**
-1. Open `Guide_Dogs_Test_Deck.pptx`
+1. Open `Guide_Dogs_Example_Deck.pptx`
 2. Close Comments pane if open
 3. Go to Slide 1
 
@@ -771,7 +771,7 @@ class AppModule(AppModule):
 ### 4.3 Phase 4 Test Checklist
 
 **Test Setup:**
-1. Open `Guide_Dogs_Test_Deck.pptx`
+1. Open `Guide_Dogs_Example_Deck.pptx`
 2. Go to Slide 7 (has 3 comments)
 
 **Tests:**

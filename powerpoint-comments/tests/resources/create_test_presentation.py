@@ -20,7 +20,7 @@ def create_guide_dog_presentation():
 
     # Get the output path
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, "Guide_Dogs_Test_Deck.pptx")
+    output_path = os.path.join(script_dir, "Guide_Dogs_Example_Deck.pptx")
 
     # ========== SLIDE 1: Title Slide ==========
     slide1 = presentation.Slides.Add(1, 1)  # ppLayoutTitle
