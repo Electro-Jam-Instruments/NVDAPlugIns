@@ -34,6 +34,17 @@ This document provides comprehensive research on Microsoft PowerPoint's UI Autom
 
 PowerPoint's UIA tree follows this general hierarchy:
 
+#### Linear Walkthrough
+
+1. **Desktop (Root)** - Top level
+2. **PowerPoint Application Window (POWERPNT.EXE)** contains:
+   - **Ribbon (NetUIHWND)** - Contains Ribbon Tabs (Tab control), Ribbon Groups (Pane elements), Quick Access Toolbar
+   - **Document Area (mdiClass / paneClassDC)** - Contains Slide Editing Pane (ViewSlide), Thumbnail Pane (ViewThumbnails), Notes Pane (ViewNotesText), Outline Pane (ViewOutline)
+   - **Task Panes** - Comments, Accessibility Checker, etc. The Comments Pane contains Comment Threads (List-like structure) and Individual Comments
+   - **Status Bar**
+
+#### 2D Visual Map
+
 ```
 Desktop (Root)
 └── PowerPoint Application Window (POWERPNT.EXE)
@@ -206,6 +217,18 @@ PowerPoint elements typically use:
 | Navigation | F6 to cycle to pane |
 
 ### Comments Pane UIA Structure
+
+#### Linear Walkthrough
+
+**Comments Pane (Pane) contains:**
+1. **New Comment Button**
+2. **Comment Threads Container** - Contains multiple Comment Threads
+   - Each **Comment Thread** has:
+     - **Parent Comment** - Contains Author Name, Timestamp, Comment Text, More Actions Button, Like Button
+     - **Reply Comments** (collapsible) - Contains Reply 1, Reply 2, etc.
+3. **Reply Input Field**
+
+#### 2D Visual Map
 
 ```
 Comments Pane (Pane)

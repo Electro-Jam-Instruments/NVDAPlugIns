@@ -20,6 +20,15 @@ ppt_app = GetActiveObject("PowerPoint.Application")  # WinError -2147221021
 
 ## COM Object Hierarchy
 
+### Linear Walkthrough
+
+**Application** is the root object:
+- **ActivePresentation** → **Slides** (collection, 1-indexed) → **Slide**
+  - Slide has: SlideIndex (int), Shapes (collection), Comments (collection), NotesPage.Shapes[2].TextFrame.TextRange.Text
+- **ActiveWindow** → ViewType (int), View → Slide (current slide)
+
+### 2D Visual Map
+
 ```
 Application
 ├── ActivePresentation

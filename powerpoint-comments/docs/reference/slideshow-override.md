@@ -22,6 +22,19 @@ PowerPoint has two main modes relevant to this addon:
 
 ## NVDA's Slideshow Class Hierarchy
 
+### Linear Walkthrough
+
+1. **SlideShowWindow** (NVDAObject representing the slideshow window)
+   - Key method: `_get_name()` - Returns window name (lazy evaluation)
+   - Key property: `treeInterceptorClass` - Which TreeInterceptor to use
+
+2. **SlideShowWindow creates** → **ReviewableSlideshowTreeInterceptor**
+
+3. **ReviewableSlideshowTreeInterceptor** (Browse mode handler - controls content reading)
+   - Key method: `reportNewSlide()` - Controls slide change announcement (THIS IS THE KEY METHOD)
+
+### 2D Visual Map
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    SlideShowWindow                       │
@@ -117,6 +130,17 @@ def chooseNVDAObjectOverlayClasses(self, obj, clsList):
 ```
 
 ## Event Flow on Slide Change
+
+### Linear Walkthrough
+
+1. PowerPoint advances slide
+2. COM Event fires (SlideShowNextSlide) → Worker thread caches: title, notes, comments
+3. NVDA detects window change
+4. handleSlideChange() calls treeInterceptor.reportNewSlide()
+5. reportNewSlide() speaks first line only
+6. User hears: "has notes, Has 2 comments, Slide Title"
+
+### 2D Visual Map
 
 ```
 1. PowerPoint advances slide

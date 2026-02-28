@@ -29,6 +29,15 @@ This document contains distilled knowledge for automating Microsoft PowerPoint v
 
 ### Hierarchy
 
+#### Linear Walkthrough
+
+**Application** is the root object:
+- **ActivePresentation** → **Slides** (collection, 1-indexed) → **Slide** (has SlideIndex, Shapes collection, Comments collection)
+  - Each **Comment** has: Author, AuthorInitials, Text, DateTime, Replies (Modern Comments)
+- **ActiveWindow** → ViewType (int), View → Slide (current slide)
+
+#### 2D Visual Map
+
 ```
 Application
 ├── ActivePresentation

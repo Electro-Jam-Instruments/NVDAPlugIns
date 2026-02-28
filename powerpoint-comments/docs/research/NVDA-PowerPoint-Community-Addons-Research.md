@@ -491,6 +491,15 @@ def script_nextComment(self, gesture):
 
 ### Current Core Structure (powerpnt.py)
 
+#### Linear Walkthrough
+
+**appModules/powerpnt.py contains:**
+- **Classes:** PaneClassDC (base window handler), DocumentWindow (document management), OutlinePane, SlideBase (with Slide and Master subclasses), Shape, Table, TableCell, TextFrame, SlideShowWindow, SlideShowTreeInterceptor
+- **Event Handlers:** ppEApplicationSink (COM events), Selection change handlers
+- **Gesture Bindings:** Arrow key navigation, Tab navigation, Page navigation
+
+#### 2D Visual Map
+
 ```
 appModules/powerpnt.py
 ├── Classes
@@ -516,6 +525,16 @@ appModules/powerpnt.py
 ```
 
 ### Proposed Plugin Extension Structure
+
+#### Linear Walkthrough
+
+**globalPlugins/powerpoint_ai/ contains:**
+- **__init__.py** - Package init
+- **navigation.py** - Contains ImageNavigator (next_image, previous_image, get_all_images) and CommentNavigator (next_comment, previous_comment, get_all_comments)
+- **image_analyzer.py** - Contains OllamaAnalyzer (describe_image, check_status) and DescriptionCache
+- **settings.py** - Contains SettingsPanel and Configuration
+
+#### 2D Visual Map
 
 ```
 globalPlugins/powerpoint_ai/

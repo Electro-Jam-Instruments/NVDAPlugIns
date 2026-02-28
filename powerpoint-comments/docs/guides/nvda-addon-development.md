@@ -4,6 +4,16 @@ How to build and modify NVDA addons, specifically for PowerPoint integration.
 
 ## Addon Structure
 
+### Linear Walkthrough
+
+**addon/ folder contains:**
+- **manifest.ini** - Required: addon metadata
+- **appModules/** - App-specific modules (by exe name), contains powerpnt.py for PowerPoint
+- **globalPlugins/** - Always-active plugins (not used here)
+- **doc/** - Documentation (optional)
+
+### 2D Visual Map
+
 ```
 addon/
 ├── manifest.ini          # Required: addon metadata

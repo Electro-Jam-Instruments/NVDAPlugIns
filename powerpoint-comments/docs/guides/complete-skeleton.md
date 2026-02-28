@@ -4,6 +4,17 @@ A complete working example showing all the pieces together. Use this as a refere
 
 ## File Structure
 
+### Linear Walkthrough
+
+**powerpoint-comments/ folder contains:**
+- **addon/** - The addon package
+  - **manifest.ini** - Addon metadata
+  - **appModules/powerpnt.py** - PowerPoint module
+- **buildVars.py** - Build configuration
+- **sconstruct** - Scons build script
+
+### 2D Visual Map
+
 ```
 powerpoint-comments/
 ├── addon/
