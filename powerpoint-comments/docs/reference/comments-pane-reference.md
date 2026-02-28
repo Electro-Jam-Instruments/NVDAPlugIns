@@ -6,6 +6,28 @@ Complete documentation for Comments pane detection, navigation, and comment refo
 
 The Comments pane follows this UIA hierarchy:
 
+### Linear Walkthrough
+
+- **PowerPoint Window** (ControlType.Window)
+  - Child: **Document** (ControlType.Document)
+  - Child: **Task Pane Region** (ControlType.Pane)
+    - Child: **Comments Pane** (ControlType.Pane)
+      - Child: **New Comment Button** (ControlType.Button)
+      - Child: **Comments List** (ControlType.List) [AutomationId: CommentsList]
+        - Child: **Comment Thread 1** (ControlType.ListItem) [AutomationId: cardRoot_1_GUID]
+          - Child: Author Text (ControlType.Text)
+          - Child: Comment Text (ControlType.Text)
+          - Child: Timestamp Text (ControlType.Text)
+          - Child: More Actions Button (ControlType.Button)
+          - Child: Like Button (ControlType.Button)
+          - Child: Reply Comments (collapsible)
+            - Child: Reply 1 [AutomationId: postRoot_...]
+            - Child: Reply 2
+        - Child: **Comment Thread 2** (ControlType.ListItem) [AutomationId: cardRoot_2_GUID]
+        - Additional comment threads...
+
+### 2D Visual Map
+
 ```
 PowerPoint Window (ControlType.Window)
 +-- Document (ControlType.Document)
@@ -30,12 +52,14 @@ PowerPoint Window (ControlType.Window)
 
 | Window Class | Purpose | UIA Behavior |
 |-------------|---------|--------------|
-| `paneClassDC` | Main slide editing area | UIA disabled by NVDA |
-| `mdiClass` | MDI container | UIA disabled by NVDA |
+| `paneClassDC` | Main slide editing area | Blocked by NVDA |
+| `mdiClass` | MDI container | Blocked by NVDA |
 | `NetUIHWND` | Ribbon and task panes | UIA enabled |
 | `PodiumParent` | Presentation panel | May require focus for child access |
 
-**Note:** NVDA disables UIA for slide editing windows (`paneClassDC`, `mdiClass`) and uses COM automation instead. The Comments pane uses standard Office task pane patterns with full UIA support.
+> **NVDA's UIA blocklist (not our choice):** NVDA disables UIA for `paneClassDC` and `mdiClass` because Microsoft's PowerPoint UIA implementation was incomplete (see NVDA Issue #3578). This may change as UIA improves.
+>
+> **Our architectural choice:** Given NVDA's blocklist, we use COM for slide/comment data and UIA for task pane focus (Comments pane uses `NetUIHWND`, which NVDA supports).
 
 ## UIAutomationId Patterns
 
@@ -271,6 +295,23 @@ def event_gainFocus(self, obj, nextHandler):
 **The `_just_navigated` flag** prevents cutting off slide title announcements when PageUp/PageDown triggers a slide change followed by focus change.
 
 ## Complete Comment Detection Flow
+
+### Linear Walkthrough
+
+1. User presses Tab in Comments pane
+2. `event_gainFocus` fires
+3. Get `UIAAutomationId` from focused object
+4. Check: Does ID start with `cardRoot_*` or `postRoot_*`?
+   - If NO: Pass to `nextHandler()` and exit
+   - If YES: Continue to step 5
+5. Get `obj.name`
+6. Normalize whitespace (convert U+00A0 to U+0020)
+7. Parse name for patterns: "started by" / "Comment by" / "Task updated"
+8. Extract author name, detect "Resolved" prefix
+9. Cancel pending speech (skip if `_just_navigated` flag is set)
+10. Announce: "Author:" or "Resolved - Author:"
+
+### 2D Visual Map
 
 ```
 User presses Tab in Comments pane

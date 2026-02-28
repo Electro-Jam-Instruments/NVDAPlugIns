@@ -18,7 +18,9 @@ Key technical decisions made during development, with rationale.
 
 **Choice:** `comHelper.getActiveObject()` not direct `GetActiveObject()`
 
-**Why:** NVDA runs with UIAccess privileges. Direct COM access to lower-privilege processes (PowerPoint) fails with `WinError -2147221021`.
+**Constraint (Windows):** NVDA runs with UIAccess privileges. Windows security blocks high-privilege processes from directly accessing COM in lower-privilege processes (PowerPoint). This causes `WinError -2147221021`.
+
+**Our choice:** Adopt NVDA's `comHelper` module, which handles the privilege bridging correctly.
 
 **Verified:** v0.0.13+
 
@@ -168,10 +170,13 @@ Worker thread is preferred because it has no arbitrary delays and provides prope
 
 **Choice:** Use COM API to read comment data, UIA to manage Comments pane focus
 
-**Why:**
-- COM provides reliable access to `Slide.Comments` collection
-- Comments pane is UIA-enabled (NetUIHWNDElement)
-- UIA focus more reliable than COM selection for UI elements
+**Constraint (NVDA):** NVDA blocks UIA for PowerPoint's main content classes (`paneClassDC`, `mdiClass`) because Microsoft's UIA implementation was incomplete (NVDA Issue #3578). This may change as UIA improves.
+
+**Our choice given the constraint:**
+- **COM** for slide content, comments, and notes (works regardless of NVDA's UIA stance)
+- **UIA** for focusing task panes like Comments (uses `NetUIHWND`, which NVDA supports)
+
+This hybrid approach works now and would simplify if NVDA later enables UIA for more PowerPoint classes.
 
 ---
 

@@ -53,4 +53,6 @@ Visit [community.electro-jam.com](https://community.electro-jam.com) for support
 
 ## License
 
-MIT License
+GNU General Public License v2.0 (GPL-2.0)
+
+This addon is a derivative work of NVDA, which is licensed under GPL v2. See [LICENSE](../LICENSE) for full terms.

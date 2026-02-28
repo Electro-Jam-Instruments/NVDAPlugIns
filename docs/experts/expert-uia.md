@@ -24,15 +24,30 @@ NVDA uses a decision tree to determine whether to use UIA for an element:
 
 ### Window Class Lists
 
-**Good UIA Classes** (always use UIA):
+**Good UIA Classes** (NVDA always uses UIA):
 - `NetUIHWND` - Office ribbon and task panes
 - `_WwG` - Word document windows
 - `ConsoleWindowClass` - Console windows
 
-**Bad UIA Classes** (NVDA rejects UIA):
-- `paneClassDC` - PowerPoint content area (uses COM instead)
+### NVDA's UIA Blocklist (as of NVDA 2024.x)
+
+These window classes are blocked by NVDA, not by us:
+
+- `paneClassDC` - PowerPoint content area
 - `mdiClass` - PowerPoint MDI container
 - `screenClass` - PowerPoint slideshow
+
+> **Why NVDA blocks these:** Per NVDA Issue #3578, Microsoft's UIA implementation for PowerPoint's main content area was incomplete and interfered with existing accessibility workarounds. NVDA chose to use MSAA/IAccessible instead.
+>
+> **This may change:** UIA has been improving significantly. Future NVDA versions may revisit these decisions as Microsoft enhances PowerPoint's UIA support. Always check current NVDA source for the latest blocklist.
+
+### Our Architectural Choice (PowerPoint Comments Plugin)
+
+Given NVDA's current blocklist, we chose:
+- **COM automation** for reading slide content, comments, and notes (works regardless of NVDA's UIA decisions)
+- **UIA** for focusing task panes like Comments (these use `NetUIHWND`, which NVDA supports)
+
+This is documented here so future developers understand the distinction between "NVDA won't let us use UIA" vs "we chose not to use UIA."
 
 ## UIA with comtypes
 

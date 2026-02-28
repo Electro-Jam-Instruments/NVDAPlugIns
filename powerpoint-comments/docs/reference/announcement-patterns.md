@@ -2,9 +2,18 @@
 
 Patterns for modifying NVDA announcements in PowerPoint, particularly for controlling announcement order.
 
-## Problem: Announcement Order
+## PowerPoint View Modes
 
-When navigating slides, NVDA announces in this order:
+This document covers announcements in both PowerPoint view modes:
+
+- **Normal view** - Where you edit slides (slide thumbnails on left, main slide in center, notes below)
+- **Slideshow view** - Full-screen presentation mode (F5 to start)
+
+Each mode has different announcement patterns and override points.
+
+## Problem: Announcement Order (Normal View)
+
+When navigating slides in Normal view, NVDA announces in this order:
 1. NVDA built-in: "Slide 1, Title"
 2. Our addon: "Has 1 comment"
 3. Our addon: "has notes"

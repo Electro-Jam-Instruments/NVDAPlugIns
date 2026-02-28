@@ -14,6 +14,19 @@ General knowledge for developing NVDA addons. For app-specific details, see the 
 
 ## NVDA Addon Structure
 
+### Linear Walkthrough
+
+**addon/ (root):**
+- manifest.ini - Required: addon metadata
+- appModules/ - App-specific modules (by exe name)
+  - appname.py - Named after executable (e.g., powerpnt.py for PowerPoint)
+- globalPlugins/ - Always-active plugins
+  - myPlugin/__init__.py - Plugin entry point
+- doc/en/readme.html - Documentation
+- locale/en/LC_MESSAGES/ - Translations
+
+### 2D Visual Map
+
 ```
 addon/
 ├── manifest.ini          # Required: addon metadata

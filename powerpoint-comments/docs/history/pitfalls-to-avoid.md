@@ -56,13 +56,15 @@ ppt = GetActiveObject("PowerPoint.Application")
 
 **What happened:** `WinError -2147221021 Operation unavailable`
 
-**Why it failed:** NVDA runs with UIAccess privileges. Windows blocks high-privilege processes from directly accessing COM in lower-privilege processes.
+**Why it failed:** This is a **Windows security constraint**, not something we can change. NVDA runs with UIAccess privileges, and Windows blocks high-privilege processes from directly accessing COM in lower-privilege processes.
 
-**The fix:** Use NVDA's comHelper:
+**The fix:** Use NVDA's `comHelper` module, which handles the privilege bridging:
 ```python
 import comHelper
 ppt = comHelper.getActiveObject("PowerPoint.Application", dynamic=True)
 ```
+
+> **Constraint vs choice:** The Windows security model forces this. NVDA provides `comHelper` as the solution. We adopted NVDA's pattern.
 
 ---
 

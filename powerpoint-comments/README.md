@@ -12,9 +12,18 @@ This add-on makes working with PowerPoint comments and notes much easier:
 
 ## How to Use
 
+### View Modes
+
+PowerPoint has two main modes this add-on enhances:
+
+- **Normal view** - Where you edit slides (slide thumbnails on left, main slide in center, notes below)
+- **Slideshow view** - Full-screen presentation mode (press F5 to start)
+
+The features below work in both views.
+
 ### Slide Change Announcements
 
-Just navigate slides normally. When you land on a slide, you'll hear:
+Navigate slides in Normal view or Slideshow view. When you land on a slide, you'll hear:
 > "Slide 3, has notes, has 2 comments, Project Timeline"
 
 This tells you the slide number, whether it has notes you marked, how many comments, and the slide title.
@@ -80,4 +89,6 @@ Visit [community.electro-jam.com](https://community.electro-jam.com) for support
 
 ## License
 
-MIT License
+GNU General Public License v2.0 (GPL-2.0)
+
+This addon is a derivative work of NVDA, which is licensed under GPL v2. See [LICENSE](../LICENSE) for full terms.

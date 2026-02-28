@@ -45,7 +45,9 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, or
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
+GNU General Public License v2.0 (GPL-2.0)
+
+These addons are derivative works of NVDA, which is licensed under GPL v2. This ensures improvements stay available to the accessibility community. See [LICENSE](LICENSE) for full terms.
 
 ---
 

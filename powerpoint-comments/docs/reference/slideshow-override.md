@@ -1,8 +1,15 @@
 # Slideshow Override Reference
 
-How to customize what NVDA announces during PowerPoint slideshow mode.
+How to customize what NVDA announces during PowerPoint Slideshow view.
 
 **Version:** Documented from v0.0.78 implementation (January 2026)
+
+## PowerPoint View Modes
+
+PowerPoint has two main modes relevant to this addon:
+
+- **Normal view** - Where you edit slides (slide thumbnails on left, main slide in center, notes below). See `announcement-patterns.md` for Normal view announcements.
+- **Slideshow view** - Full-screen presentation mode (F5 to start). **This document covers Slideshow view.**
 
 ## The Problem We Solved
 

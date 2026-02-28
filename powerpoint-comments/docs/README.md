@@ -2,6 +2,15 @@
 
 This folder contains technical documentation for the PowerPoint Comments NVDA addon.
 
+## PowerPoint View Modes
+
+The addon works in both PowerPoint view modes:
+
+- **Normal view** - Where you edit slides (slide thumbnails on left, main slide in center, notes below)
+- **Slideshow view** - Full-screen presentation mode (F5 to start)
+
+Each mode has different NVDA object types and announcement patterns. See `reference/announcement-patterns.md` for Normal view and `reference/slideshow-override.md` for Slideshow view.
+
 ## Documentation Structure
 
 | Folder | Purpose |

@@ -295,6 +295,15 @@ def _verify_connection(self):
 
 ### 1.1.1 Create Addon Directory Structure
 
+**Linear Walkthrough:**
+- powerpoint-comments/ (root)
+  - addon/manifest.ini - Addon metadata
+  - addon/appModules/powerpnt.py - PowerPoint app module
+  - buildVars.py - Build configuration
+  - README.md - Documentation
+
+**2D Visual Map:**
+
 ```
 powerpoint-comments/
 ├── addon/

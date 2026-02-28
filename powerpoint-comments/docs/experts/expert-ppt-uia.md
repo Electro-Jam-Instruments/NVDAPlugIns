@@ -137,20 +137,41 @@ for i in range(elements.Length):
 | NetUIHWND | Ribbon/task panes | Enabled |
 | screenClass | Slideshow | Disabled by NVDA |
 
-### Why NVDA Disables UIA
+### Why NVDA Disables UIA for These Classes
 
-From NVDA source (Issue #3578):
+This is **NVDA's decision**, not ours. From NVDA source (Issue #3578):
 > Microsoft's UIA implementation for PowerPoint is incomplete and "cripples existing support/hacks by other ATs"
 
 NVDA adds these to `badUIAWindowClasses`:
 - `paneClassDC`
 - `mdiClass`
 
-**Result:** Content uses COM, task panes (like Comments) use UIA.
+> **This may change:** UIA has been improving. Microsoft continues to invest in accessibility, and future NVDA versions may revisit this blocklist. Always verify against current NVDA source.
+
+### Our Architectural Choice
+
+Given NVDA's current blocklist, we chose:
+- **COM** for slide content, comments data, and notes (works regardless of NVDA's UIA stance)
+- **UIA** for focusing task panes like Comments (uses `NetUIHWND`, which NVDA supports)
+
+This distinction matters: if NVDA later enables UIA for `paneClassDC`, we could potentially simplify some code paths.
 
 ## Comments Pane Structure
 
-### UIA Tree (Typical)
+### Linear Walkthrough
+
+- **NetUIHWNDElement** (Comments pane)
+  - Child: Text "Comments"
+  - Child: List
+    - Child: ListItem (Comment 1)
+      - Child: Text "Author Name"
+      - Child: Text "Comment text..."
+      - Child: Button "Reply"
+    - Child: ListItem (Comment 2)
+    - Additional comments...
+  - Child: Button "New Comment"
+
+### 2D Visual Map
 
 ```
 NetUIHWNDElement (Comments pane)

@@ -9,6 +9,58 @@ Multi-plugin repository for NVDA accessibility addons developed by Electro Jam I
 
 ## Directory Structure
 
+### Linear Walkthrough
+
+**Root level (NVDAPlugIns/):**
+- README.md - Repository index, lists all plugins
+- CHANGELOG.md - Repository-level changelog
+- CLAUDE.md - Repository-level dev instructions
+- REPO_STRUCTURE.md - This file
+- LICENSE
+
+**GitHub Actions (.github/):**
+- .github/workflows/build-addon.yml - Shared GitHub Actions workflow
+
+**Claude configuration (.claude/):**
+- .claude/commands/deploy.md - Deployment skill
+- .claude/skills/ - Additional skills
+
+**Shared docs (docs/):**
+- docs/experts/expert-uia.md - General UIA patterns (referenced by plugins)
+
+**PowerPoint Comments Plugin (powerpoint-comments/):**
+- README.md - User-facing documentation
+- CHANGELOG.md - Plugin version history
+- CLAUDE.md - Plugin-specific dev instructions
+- buildVars.py - Plugin build configuration
+- sconstruct - Scons build script
+- manifest.ini.tpl - Addon manifest template
+- site_scons/ - Scons helpers
+- addon/manifest.ini - NVDA addon manifest
+- addon/appModules/powerpnt.py - PowerPoint app module
+- docs/experts/ - PPT-specific experts
+- docs/history/ - Development history
+- docs/research/ - Research notes
+- tests/resources/ - Test files (presentations, etc.)
+
+**Windows Dictation Silence Plugin (windows-dictation-silence/):**
+- README.md - User-facing documentation
+- CHANGELOG.md - Plugin version history
+- CLAUDE.md - Plugin-specific dev instructions
+- buildVars.py - Plugin build configuration
+- sconstruct - Scons build script
+- manifest.ini.tpl - Addon manifest template
+- site_scons/ - Scons helpers
+- addon/manifest.ini - NVDA addon manifest
+- addon/globalPlugins/windowsDictationSilence.py - Main plugin file
+- docs/ - Plugin-specific docs
+
+**Other directories:**
+- deletedocs/ - Archived/deprecated documentation
+- localdocs/ - Local-only documentation (not deployed)
+
+### 2D Visual Map
+
 ```
 NVDAPlugIns/
 │
