@@ -34,4 +34,7 @@ General knowledge for developing NVDA addons. For plugin-specific documentation,
 ## Plugin-Specific Documentation
 
 Each plugin has its own `docs/` folder with the same structure:
-- `powerpoint-comments/docs/` - PowerPoint Comments plugin
+- `powerpoint-comments/docs/` - PowerPoint Comments plugin (comment navigation, presenter notes)
+- `windows-dictation-silence/docs/` - Windows Dictation Silence plugin (Win+H voice typing without echo)
+
+...and others as they are added.

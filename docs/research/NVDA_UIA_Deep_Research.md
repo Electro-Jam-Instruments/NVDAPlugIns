@@ -28,6 +28,25 @@ This document provides comprehensive research on how NVDA uses UI Automation (UI
 
 ### 1.1 Architecture Diagram
 
+#### Linear Walkthrough
+
+**NVDA Main Process components:**
+1. UIAHandler Module (UIAHandler/__init__.py) - manages UIA operations
+2. MTA Thread (COM Apartment) - dedicated thread for UIA to prevent UI freezing
+3. IUIAutomation Client Object - COM interface for UIA operations
+4. Tree Walkers (baseTreeWalker, windowTreeWalker) - navigate UIA element trees
+5. NVDAObjects/UIA (__init__.py) - wraps UIA elements as NVDA objects
+6. Event Handler (eventHandler.py) - receives events from UIAHandler
+7. App Modules (appModules/) - application-specific handlers
+
+**Data flow:**
+- UIAHandler communicates with Windows UIA Core (UIAutomationCore.dll)
+- Windows UIA Core connects to the target application (e.g., PowerPoint)
+- Events flow back up through UIAHandler to Event Handler
+- NVDAObjects/UIA provides accessible representations to App Modules
+
+#### 2D Visual Map
+
 ```
 +------------------------------------------------------------------+
 |                        NVDA Main Process                          |
@@ -92,6 +111,21 @@ This document provides comprehensive research on how NVDA uses UI Automation (UI
 ## 2. When Does NVDA Use UIA vs Other APIs
 
 ### 2.1 API Decision Tree
+
+#### Linear Walkthrough
+
+When NVDA encounters a new focus or element, it decides which API to use:
+
+1. **Check if NVDA's own process** - If YES: REJECT UIA (use internal handling)
+2. **Check goodUIAWindowClassNames allowlist** - If window class is in allowlist: USE UIA
+3. **Check if app module allows questionable window** - If app module approves: USE UIA
+4. **Check badUIAWindowClassNames blocklist** - If window class is in blocklist: REJECT UIA
+5. **Check if app module forbids UIA** - If app module forbids: REJECT UIA
+6. **Check UiaHasServerSideProvider** - If YES: USE UIA; If NO: Use MSAA/IAccessible
+
+**Result:** Either UIA is used, or fallback to MSAA/IAccessible.
+
+#### 2D Visual Map
 
 ```
                         +-------------------+
