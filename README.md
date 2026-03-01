@@ -6,12 +6,12 @@ Practical tools to make your daily workflows more accessible with NVDA.
 
 These NVDA add-ons aim to help screen reader users working with Microsoft Office and other Windows applications. Each plugin focuses on one thing and works to enable a custom workflow, such as having faster access to comments in PowerPoint.
 
-| Plugin | What It Does | Download |
-|--------|--------------|----------|
-| **PowerPoint Comments** | Hear comment counts when changing slides, navigate comments easily, get presenter note reminders during slideshows | [Download v0.1.0](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.1.0/powerPointComments-0.1.0.nvda-addon) |
-| **Windows Dictation Silence** | Stops NVDA from echoing your words back when using Windows Voice Typing (Win+H) | [Download v0.1.0](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/windows-dictation-silence-v0.1.0/windowsDictationSilence-0.1.0.nvda-addon) |
+| Plugin | What It Does | Stable | Beta |
+|--------|--------------|--------|------|
+| **PowerPoint Comments** | Hear comment counts when changing slides, navigate comments, presenter note reminders | [v0.1.0](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.1.0/powerPointComments-0.1.0.nvda-addon) | [beta](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.1.0-beta/powerPointComments-0.1.0.nvda-addon) |
+| **Windows Dictation Silence** | Auto-silence NVDA during Windows Voice Typing (Win+H) | [v0.1.0](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/windows-dictation-silence-v0.1.0/windowsDictationSilence-0.1.0.nvda-addon) | [beta](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/windows-dictation-silence-v0.1.0-beta/windowsDictationSilence-0.1.0.nvda-addon) |
 
-**[All Releases](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases)** - Download previous versions or beta releases
+[All Releases](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases) - Previous versions and release notes
 
 ## Installation
 
