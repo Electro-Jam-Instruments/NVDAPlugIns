@@ -1,12 +1,16 @@
 # globalPlugins/windowsDictationSilence.py
 # Auto-silence NVDA during Windows Voice Typing (Win+H)
 #
+# Version: 0.1.0-beta
+#
+# Development history:
 # v0.0.1: Initial implementation - focus-based detection (didn't work)
 # v0.0.2: Win+H hotkey interception + timer-based window polling
 # v0.0.3: Keypress interception approach (no timers)
 # v0.0.4: Fix gesture passthrough order - send Win+H before installing filter
 # v0.0.5: Fix repeated Win+H - don't skip Win+H in gesture filter
 # v0.0.6: Fix API - use speech.getState().speechMode instead of getSpeechMode()
+# v0.1.0: First public beta release
 #
 # See docs/ folder for full documentation.
 
@@ -17,7 +21,7 @@ import logging
 from scriptHandler import script
 
 log = logging.getLogger(__name__)
-log.info("Windows Dictation Silence: Loading plugin v0.0.6")
+log.info("Windows Dictation Silence: Loading plugin v0.1.0-beta")
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):

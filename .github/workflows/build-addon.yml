@@ -107,28 +107,44 @@ jobs:
           echo "addon_name=$ADDON_BASENAME" >> $GITHUB_OUTPUT
           echo "Found addon: $ADDON_FILE"
 
+      - name: Extract changelog for release
+        id: changelog
+        run: |
+          PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
+          VERSION="${{ steps.tag_info.outputs.version }}"
+          IS_BETA="${{ steps.tag_info.outputs.is_beta }}"
+
+          CHANGELOG_PATH="$PLUGIN_NAME/CHANGELOG.md"
+
+          if [ -f "$CHANGELOG_PATH" ]; then
+            # Extract the section for this version (handles both X.X.X and X.X.X-beta)
+            if [ "$IS_BETA" == "true" ]; then
+              SECTION_HEADER="$VERSION-beta"
+            else
+              SECTION_HEADER="$VERSION"
+            fi
+
+            # Extract content between this version header and the next ## header
+            CHANGELOG_CONTENT=$(awk "/^## \[$SECTION_HEADER\]/{flag=1; next} /^## \[/{flag=0} flag" "$CHANGELOG_PATH" | head -50)
+
+            if [ -z "$CHANGELOG_CONTENT" ]; then
+              CHANGELOG_CONTENT="See CHANGELOG.md for details."
+            fi
+          else
+            CHANGELOG_CONTENT="No changelog available."
+          fi
+
+          # Save to file for multiline output
+          echo "$CHANGELOG_CONTENT" > changelog_excerpt.txt
+          echo "changelog_file=changelog_excerpt.txt" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           name: ${{ steps.tag_info.outputs.release_name }}
           prerelease: ${{ steps.tag_info.outputs.is_beta == 'true' }}
           files: ${{ steps.find_addon.outputs.addon_path }}
-          body: |
-            ## ${{ steps.tag_info.outputs.release_name }}
-
-            **Plugin:** ${{ steps.tag_info.outputs.plugin_name }}
-            **Version:** ${{ steps.tag_info.outputs.version }}
-            **Type:** ${{ steps.tag_info.outputs.is_beta == 'true' && 'Beta (Pre-release)' || 'Stable Release' }}
-
-            ### Installation
-
-            1. Download the `.nvda-addon` file below
-            2. Double-click to install
-            3. Restart NVDA when prompted
-
-            ### Download
-
-            [${{ steps.find_addon.outputs.addon_name }}](${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/${{ steps.find_addon.outputs.addon_name }})
+          body_path: ${{ steps.changelog.outputs.changelog_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -139,10 +155,11 @@ jobs:
           VERSION="${{ steps.tag_info.outputs.version }}"
           IS_BETA="${{ steps.tag_info.outputs.is_beta }}"
           ADDON_FILE="${{ steps.find_addon.outputs.addon_name }}"
+          TAG="${{ steps.tag_info.outputs.tag }}"
 
           mkdir -p deploy/downloads
 
-          # Copy addon file
+          # Copy addon file with version in name
           cp "${{ steps.find_addon.outputs.addon_path }}" deploy/downloads/
 
           # Also copy as "latest" for easy linking
@@ -152,7 +169,52 @@ jobs:
             cp "${{ steps.find_addon.outputs.addon_path }}" "deploy/downloads/$PLUGIN_NAME-latest.nvda-addon"
           fi
 
-          # Create download page
+          # Create version info JSON for this plugin
+          mkdir -p deploy/api
+          cat > "deploy/api/$PLUGIN_NAME.json" << JSONEOF
+          {
+            "plugin": "$PLUGIN_NAME",
+            "version": "$VERSION",
+            "is_beta": $IS_BETA,
+            "tag": "$TAG",
+            "file": "$ADDON_FILE",
+            "updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          JSONEOF
+
+          # Copy changelog for this plugin
+          if [ -f "$PLUGIN_NAME/CHANGELOG.md" ]; then
+            cp "$PLUGIN_NAME/CHANGELOG.md" "deploy/api/$PLUGIN_NAME-changelog.md"
+          fi
+
+      - name: Generate download page
+        run: |
+          PLUGIN_NAME="${{ steps.tag_info.outputs.plugin_name }}"
+          VERSION="${{ steps.tag_info.outputs.version }}"
+          IS_BETA="${{ steps.tag_info.outputs.is_beta }}"
+
+          # Read existing version info or create defaults
+          PPT_BETA_VER=""
+          PPT_STABLE_VER=""
+          WDS_BETA_VER=""
+          WDS_STABLE_VER=""
+
+          # Set current plugin version
+          if [ "$PLUGIN_NAME" == "powerpoint-comments" ]; then
+            if [ "$IS_BETA" == "true" ]; then
+              PPT_BETA_VER="$VERSION"
+            else
+              PPT_STABLE_VER="$VERSION"
+            fi
+          elif [ "$PLUGIN_NAME" == "windows-dictation-silence" ]; then
+            if [ "$IS_BETA" == "true" ]; then
+              WDS_BETA_VER="$VERSION"
+            else
+              WDS_STABLE_VER="$VERSION"
+            fi
+          fi
+
+          # Generate the HTML
           cat > deploy/index.html << 'HTMLEOF'
           <!DOCTYPE html>
           <html lang="en">
@@ -161,92 +223,241 @@ jobs:
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>NVDA Plugins - Electro Jam Instruments</title>
             <style>
-              /* Use system colors for accessibility */
-              :root {
-                color-scheme: light dark;
-              }
+              :root { color-scheme: light dark; }
               body {
-                font-family: system-ui, sans-serif;
-                max-width: 800px;
+                font-family: system-ui, -apple-system, sans-serif;
+                max-width: 900px;
                 margin: 2rem auto;
                 padding: 1rem;
                 background: Canvas;
                 color: CanvasText;
+                line-height: 1.6;
               }
-              h1, h2, h3 { color: CanvasText; }
-              .download-box {
-                background: color-mix(in srgb, CanvasText 10%, Canvas);
+              h1, h2, h3 { color: CanvasText; margin-top: 1.5rem; }
+              h1 { border-bottom: 2px solid CanvasText; padding-bottom: 0.5rem; }
+              .plugin-card {
+                background: color-mix(in srgb, CanvasText 5%, Canvas);
                 padding: 1.5rem;
                 border-radius: 8px;
+                margin: 1.5rem 0;
+                border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas);
+              }
+              .download-section {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 1rem;
                 margin: 1rem 0;
-                border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas);
               }
-              .download-link {
+              .download-btn {
                 display: inline-block;
-                background: LinkText;
-                color: Canvas;
-                padding: 0.75rem 1.5rem;
+                padding: 0.75rem 1.25rem;
                 text-decoration: none;
+                border-radius: 6px;
+                font-weight: 500;
+              }
+              .download-btn:focus {
+                outline: 3px solid CanvasText;
+                outline-offset: 2px;
+              }
+              .download-stable {
+                background: #2563eb;
+                color: white;
+              }
+              .download-beta {
+                background: color-mix(in srgb, CanvasText 20%, Canvas);
+                color: CanvasText;
+                border: 1px solid color-mix(in srgb, CanvasText 30%, Canvas);
+              }
+              .version-info {
+                font-size: 0.9rem;
+                color: GrayText;
+                margin-top: 0.5rem;
+              }
+              .changelog-toggle {
+                background: none;
+                border: 1px solid color-mix(in srgb, CanvasText 30%, Canvas);
+                padding: 0.5rem 1rem;
                 border-radius: 4px;
-                margin: 0.5rem 0;
+                cursor: pointer;
+                color: CanvasText;
+                margin-top: 1rem;
               }
-              .download-link:hover {
-                filter: brightness(0.85);
-              }
-              .download-link:focus {
+              .changelog-toggle:focus {
                 outline: 2px solid CanvasText;
                 outline-offset: 2px;
               }
+              .changelog {
+                display: none;
+                margin-top: 1rem;
+                padding: 1rem;
+                background: color-mix(in srgb, CanvasText 10%, Canvas);
+                border-radius: 4px;
+                max-height: 300px;
+                overflow-y: auto;
+              }
+              .changelog.show { display: block; }
+              .changelog h3 { margin-top: 0.5rem; }
+              .changelog ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+              .requirements {
+                font-size: 0.95rem;
+                margin: 0.5rem 0;
+              }
+              .install-steps {
+                background: color-mix(in srgb, CanvasText 8%, Canvas);
+                padding: 1rem 1.5rem;
+                border-radius: 6px;
+                margin: 1rem 0;
+              }
+              .install-steps ol { margin: 0.5rem 0; padding-left: 1.5rem; }
               code {
                 background: color-mix(in srgb, CanvasText 15%, Canvas);
-                padding: 0.2rem 0.4rem;
+                padding: 0.15rem 0.4rem;
                 border-radius: 3px;
+                font-size: 0.95em;
+              }
+              footer {
+                margin-top: 3rem;
+                padding-top: 1rem;
+                border-top: 1px solid color-mix(in srgb, CanvasText 20%, Canvas);
+                color: GrayText;
+                text-align: center;
               }
               a { color: LinkText; }
               a:visited { color: VisitedText; }
-              footer { color: GrayText; }
             </style>
           </head>
           <body>
             <h1>NVDA Plugins</h1>
-            <p>Accessibility plugins for NVDA screen reader by Electro Jam Instruments.</p>
+            <p>Accessibility add-ons for the <a href="https://www.nvaccess.org/">NVDA screen reader</a> by Electro Jam Instruments.</p>
 
-            <div class="download-box">
+            <div class="plugin-card">
               <h2>PowerPoint Comments</h2>
-              <p>Navigate and read PowerPoint comments with keyboard shortcuts.</p>
-              <p><strong>Requirements:</strong> NVDA 2024.1+, PowerPoint 365</p>
+              <p>Hear comment counts when navigating slides. Read presenter notes with a keyboard shortcut. Works in both edit mode and slideshow mode.</p>
+              <p class="requirements"><strong>Requirements:</strong> NVDA 2024.1+, Microsoft PowerPoint 365</p>
 
-              <h3>Downloads</h3>
-              <p>
-                <a class="download-link" href="downloads/powerpoint-comments-latest-beta.nvda-addon">
-                  Download Latest Beta
+              <div class="download-section">
+                <a class="download-btn download-stable" href="downloads/powerpoint-comments-latest.nvda-addon" id="ppt-stable">
+                  Download Stable
                 </a>
-              </p>
+                <a class="download-btn download-beta" href="downloads/powerpoint-comments-latest-beta.nvda-addon" id="ppt-beta">
+                  Download Beta
+                </a>
+              </div>
+              <p class="version-info" id="ppt-versions">Check GitHub releases for version info</p>
+
+              <button class="changelog-toggle" onclick="toggleChangelog('ppt-changelog')" aria-expanded="false" aria-controls="ppt-changelog">
+                View Changelog
+              </button>
+              <div class="changelog" id="ppt-changelog" role="region" aria-label="PowerPoint Comments changelog">
+                <p>Loading changelog...</p>
+              </div>
             </div>
 
-            <div class="download-box">
+            <div class="plugin-card">
               <h2>Windows Dictation Silence</h2>
-              <p>Auto-silence NVDA during Windows Voice Typing (Win+H). Speech restores automatically when dictation ends.</p>
-              <p><strong>Requirements:</strong> NVDA 2024.1+, Windows 11</p>
+              <p>Automatically silences NVDA when Windows Voice Typing (Win+H) is active. Speech restores instantly when you press any key to close dictation.</p>
+              <p class="requirements"><strong>Requirements:</strong> NVDA 2024.1+, Windows 11</p>
 
-              <h3>Downloads</h3>
-              <p>
-                <a class="download-link" href="downloads/windows-dictation-silence-latest-beta.nvda-addon">
-                  Download Latest Beta
+              <div class="download-section">
+                <a class="download-btn download-stable" href="downloads/windows-dictation-silence-latest.nvda-addon" id="wds-stable">
+                  Download Stable
                 </a>
-              </p>
+                <a class="download-btn download-beta" href="downloads/windows-dictation-silence-latest-beta.nvda-addon" id="wds-beta">
+                  Download Beta
+                </a>
+              </div>
+              <p class="version-info" id="wds-versions">Check GitHub releases for version info</p>
+
+              <button class="changelog-toggle" onclick="toggleChangelog('wds-changelog')" aria-expanded="false" aria-controls="wds-changelog">
+                View Changelog
+              </button>
+              <div class="changelog" id="wds-changelog" role="region" aria-label="Windows Dictation Silence changelog">
+                <p>Loading changelog...</p>
+              </div>
             </div>
 
-            <h2>Installation</h2>
-            <ol>
-              <li>Download the <code>.nvda-addon</code> file</li>
-              <li>Double-click to install</li>
-              <li>Restart NVDA when prompted</li>
-            </ol>
+            <div class="install-steps">
+              <h2>Installation</h2>
+              <ol>
+                <li>Download the <code>.nvda-addon</code> file</li>
+                <li>Open the file (double-click or press Enter)</li>
+                <li>Confirm installation when NVDA prompts</li>
+                <li>Restart NVDA when prompted</li>
+              </ol>
+              <p>For addon management help, see the <a href="https://www.nvaccess.org/files/nvda/documentation/userGuide.html#AddonsManager">NVDA User Guide</a>.</p>
+            </div>
+
+            <h2>Source Code &amp; Issues</h2>
+            <p>
+              <a href="https://github.com/Electro-Jam-Instruments/NVDAPlugIns">GitHub Repository</a> -
+              Report bugs, request features, or contribute code.
+            </p>
 
             <footer>
-              <p>&copy; 2025 Electro Jam Instruments</p>
+              <p>&copy; 2026 Electro Jam Instruments</p>
+              <p>Licensed under GPL v2.0</p>
             </footer>
+
+            <script>
+              function toggleChangelog(id) {
+                const el = document.getElementById(id);
+                const btn = el.previousElementSibling;
+                const isShown = el.classList.toggle('show');
+                btn.setAttribute('aria-expanded', isShown);
+              }
+
+              // Load changelogs dynamically
+              async function loadChangelog(plugin, elementId) {
+                try {
+                  const response = await fetch(`api/${plugin}-changelog.md`);
+                  if (response.ok) {
+                    const text = await response.text();
+                    // Simple markdown to HTML for changelog
+                    const html = text
+                      .replace(/^## \[([^\]]+)\]/gm, '<h3>Version $1</h3>')
+                      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+                      .replace(/^- (.+)$/gm, '<li>$1</li>')
+                      .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+                      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                      .replace(/`([^`]+)`/g, '<code>$1</code>');
+                    document.getElementById(elementId).innerHTML = html;
+                  }
+                } catch (e) {
+                  console.log('Could not load changelog for ' + plugin);
+                }
+              }
+
+              // Load version info
+              async function loadVersionInfo(plugin, stableId, betaId, versionsId) {
+                // Check if files exist by trying to fetch headers
+                const stableBtn = document.getElementById(stableId);
+                const betaBtn = document.getElementById(betaId);
+
+                try {
+                  const stableResp = await fetch(stableBtn.href, { method: 'HEAD' });
+                  if (!stableResp.ok) {
+                    stableBtn.style.display = 'none';
+                  }
+                } catch (e) {
+                  stableBtn.style.display = 'none';
+                }
+
+                try {
+                  const betaResp = await fetch(betaBtn.href, { method: 'HEAD' });
+                  if (!betaResp.ok) {
+                    betaBtn.style.display = 'none';
+                  }
+                } catch (e) {
+                  betaBtn.style.display = 'none';
+                }
+              }
+
+              // Initialize
+              loadChangelog('powerpoint-comments', 'ppt-changelog');
+              loadChangelog('windows-dictation-silence', 'wds-changelog');
+              loadVersionInfo('powerpoint-comments', 'ppt-stable', 'ppt-beta', 'ppt-versions');
+              loadVersionInfo('windows-dictation-silence', 'wds-stable', 'wds-beta', 'wds-versions');
+            </script>
           </body>
           </html>
           HTMLEOF

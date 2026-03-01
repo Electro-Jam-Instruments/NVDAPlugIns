@@ -84,4 +84,4 @@ This creates a `.nvda-addon` file you can install for testing.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the GNU General Public License v2.0 (GPL-2.0), consistent with NVDA's licensing.
