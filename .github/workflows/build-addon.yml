@@ -1,7 +1,7 @@
 # Build and Release NVDA Addon
 #
-# Triggers on tags matching: pluginname-vX.X.X or pluginname-vX.X.X-beta
-# Branch pushes are skipped via the job-level "if" condition
+# Triggers ONLY when version tags are created (not on branch pushes)
+# Tag pattern: pluginname-vX.X.X or pluginname-vX.X.X-beta
 #
 # Beta tags (ending in -beta) create pre-releases
 # Release tags (no suffix) create stable releases
@@ -15,11 +15,13 @@ on:
     tags:
       - '*-v[0-9]+.[0-9]+.[0-9]+'
       - '*-v[0-9]+.[0-9]+.[0-9]+-beta'
+    branches-ignore:
+      - '**'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Only run if this is actually a tag push (prevents "no jobs" failures on branch pushes)
+    # Ensure we only run for actual tag pushes
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
