@@ -134,8 +134,14 @@ jobs:
             CHANGELOG_CONTENT="No changelog available."
           fi
 
-          # Save to file for multiline output
-          echo "$CHANGELOG_CONTENT" > changelog_excerpt.txt
+          # Save to file for multiline output with source archive note
+          cat > changelog_excerpt.txt << BODYEOF
+$CHANGELOG_CONTENT
+
+---
+
+**Note:** The "Source code" downloads below contain the full repository (all plugins), not just this plugin. To install the addon, download the \`.nvda-addon\` file above.
+BODYEOF
           echo "changelog_file=changelog_excerpt.txt" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
