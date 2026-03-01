@@ -137,13 +137,13 @@ jobs:
           fi
 
           # Save to file for multiline output with source archive note
-          cat > changelog_excerpt.txt << BODYEOF
-$CHANGELOG_CONTENT
-
----
-
-**Note:** The "Source code" downloads below contain the full repository (all plugins), not just this plugin. To install the addon, download the \`.nvda-addon\` file above.
-BODYEOF
+          {
+            echo "$CHANGELOG_CONTENT"
+            echo ""
+            echo "---"
+            echo ""
+            echo "**Note:** The \"Source code\" downloads below contain the full repository (all plugins), not just this plugin. To install the addon, download the \`.nvda-addon\` file above."
+          } > changelog_excerpt.txt
           echo "changelog_file=changelog_excerpt.txt" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
