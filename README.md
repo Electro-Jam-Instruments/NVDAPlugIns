@@ -8,7 +8,7 @@ These NVDA add-ons aim to help screen reader users working with Microsoft Office
 
 | Plugin | What It Does | Stable | Beta |
 |--------|--------------|--------|------|
-| **PowerPoint Comments** | Hear comment counts and presenter notes in edit mode and slideshow mode | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest-beta.nvda-addon) |
+| **PowerPoint Comments and Notes** | Hear comment counts and presenter notes in edit mode and slideshow mode | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest-beta.nvda-addon) |
 | **Windows Dictation Silence** | Auto-silence NVDA during Windows Voice Typing (Win+H) | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest-beta.nvda-addon) |
 
 [All Releases](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases) - Previous versions and release notes
