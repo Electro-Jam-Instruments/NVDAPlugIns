@@ -8,8 +8,8 @@ These NVDA add-ons aim to help screen reader users working with Microsoft Office
 
 | Plugin | What It Does | Stable | Beta |
 |--------|--------------|--------|------|
-| **PowerPoint Comments** | Hear comment counts when changing slides, navigate comments, presenter note reminders | [v0.1.0](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.1.0/powerPointComments-0.1.0.nvda-addon) | [beta](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/powerpoint-comments-v0.1.0-beta/powerPointComments-0.1.0.nvda-addon) |
-| **Windows Dictation Silence** | Auto-silence NVDA during Windows Voice Typing (Win+H) | [v0.1.0](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/windows-dictation-silence-v0.1.0/windowsDictationSilence-0.1.0.nvda-addon) | [beta](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases/download/windows-dictation-silence-v0.1.0-beta/windowsDictationSilence-0.1.0.nvda-addon) |
+| **PowerPoint Comments** | Hear comment counts and presenter notes in edit mode and slideshow mode | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest-beta.nvda-addon) |
+| **Windows Dictation Silence** | Auto-silence NVDA during Windows Voice Typing (Win+H) | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest-beta.nvda-addon) |
 
 [All Releases](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases) - Previous versions and release notes
 
