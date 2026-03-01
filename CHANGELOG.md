@@ -13,10 +13,8 @@ Each plugin maintains its own detailed changelog:
 
 | Plugin | Version | Changelog |
 |--------|---------|-----------|
-| PowerPoint Comments | 0.1.0-beta | [powerpoint-comments/CHANGELOG.md](powerpoint-comments/CHANGELOG.md) |
-| Windows Dictation Silence | 0.1.0-beta | [windows-dictation-silence/CHANGELOG.md](windows-dictation-silence/CHANGELOG.md) |
-
-> **Note:** These are initial beta releases. Full stable releases coming soon.
+| PowerPoint Comments | 0.1.0 | [powerpoint-comments/CHANGELOG.md](powerpoint-comments/CHANGELOG.md) |
+| Windows Dictation Silence | 0.1.0 | [windows-dictation-silence/CHANGELOG.md](windows-dictation-silence/CHANGELOG.md) |
 
 ## Repository Changes
 
