@@ -1,6 +1,7 @@
 # Build and Release NVDA Addon
 #
-# Triggers on tags matching: pluginname-vX.X.X or pluginname-vX.X.X-beta
+# Triggers ONLY on tags matching: pluginname-vX.X.X or pluginname-vX.X.X-beta
+# Regular branch pushes are ignored (branches-ignore: '**')
 #
 # Beta tags (ending in -beta) create pre-releases
 # Release tags (no suffix) create stable releases
