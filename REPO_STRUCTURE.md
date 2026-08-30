@@ -55,6 +55,17 @@ Multi-plugin repository for NVDA accessibility addons developed by Electro Jam I
 - addon/globalPlugins/windowsDictationSilence.py - Main plugin file
 - docs/ - Plugin-specific docs
 
+**Spatial Typing Feedback Plugin (spatial-typing-feedback/):**
+- README.md - User-facing documentation
+- CHANGELOG.md - Plugin version history
+- CLAUDE.md - Plugin-specific dev instructions
+- buildVars.py - Plugin build configuration
+- sconstruct - Scons build script
+- manifest.ini.tpl - Addon manifest template
+- site_scons/ - Scons helpers
+- addon/globalPlugins/spatialTypingFeedback.py - Main plugin file
+- docs/ - Requirements, architecture decisions and NVDA hook research
+
 **Other directories:**
 - deletedocs/ - Archived/deprecated documentation
 - localdocs/ - Local-only documentation (not deployed)
@@ -118,6 +129,21 @@ NVDAPlugIns/
 │   │       └── windowsDictationSilence.py
 │   └── docs/                    # Plugin-specific docs
 │
+├── spatial-typing-feedback/     # Spatial Typing Feedback Plugin
+│   ├── README.md                # User-facing documentation
+│   ├── CHANGELOG.md             # Plugin version history
+│   ├── CLAUDE.md                # Plugin-specific dev instructions
+│   ├── buildVars.py             # Plugin build configuration
+│   ├── sconstruct               # Scons build script
+│   ├── manifest.ini.tpl         # Addon manifest template
+│   ├── manifest-translated.ini.tpl
+│   ├── site_scons/              # Scons helpers
+│   ├── addon/
+│   │   └── globalPlugins/
+│   │       └── spatialTypingFeedback.py
+│   └── docs/                    # Plugin-specific docs
+│       └── research/            # NVDA audio and typing hook research
+│
 ├── deletedocs/                  # Archived/deprecated documentation
 └── localdocs/                   # Local-only documentation (not deployed)
 ```
@@ -128,6 +154,7 @@ NVDAPlugIns/
 |--------|------|-------|
 | powerpoint-comments | AppModule | PowerPoint only |
 | windows-dictation-silence | GlobalPlugin | System-wide |
+| spatial-typing-feedback | GlobalPlugin | System-wide |
 
 ## Build System
 
@@ -159,6 +186,7 @@ Examples:
 - `powerpoint-comments-v0.0.14-beta` - Beta release
 - `powerpoint-comments-v1.0.0` - Stable release
 - `windows-dictation-silence-v0.0.6-beta` - Beta release
+- `spatial-typing-feedback-v0.0.1-beta` - Beta release
 
 **WARNING:** Tags without plugin prefix (e.g., `v0.0.1-beta`) will NOT trigger builds!
 

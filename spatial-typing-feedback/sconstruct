@@ -1,0 +1,84 @@
+# -*- coding: UTF-8 -*-
+# NVDA add-on template SCONSTRUCT file
+# Based on https://github.com/nvdaaddons/AddonTemplate
+# Copyright (C) 2012-2025 NVDA Add-on team contributors
+# This file is covered by the GNU General Public License.
+
+import codecs
+import os
+import zipfile
+
+import buildVars
+
+# Build environment
+env = Environment(ENV=os.environ, tools=["default", "gettexttool"])
+
+# Output addon file name
+addonFile = env.File("{addon_name}-{addon_version}.nvda-addon".format(**buildVars.addon_info))
+
+
+def createAddonBundleFromPath(path, dest):
+    """Creates a bundle from a directory that contains an addon manifest file."""
+    basedir = os.path.abspath(path)
+    with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as z:
+        for dirpath, dirnames, filenames in os.walk(basedir):
+            # Skip __pycache__ directories
+            dirnames[:] = [d for d in dirnames if d != '__pycache__']
+            relativePath = os.path.relpath(dirpath, basedir)
+            for filename in filenames:
+                # Skip .pyc files
+                if filename.endswith('.pyc'):
+                    continue
+                pathInBundle = os.path.join(relativePath, filename)
+                absPath = os.path.join(dirpath, filename)
+                z.write(absPath, pathInBundle)
+    return dest
+
+
+def generateManifest(source, dest):
+    """Generate manifest.ini from template using buildVars."""
+    with codecs.open(source, "r", "utf-8") as f:
+        manifest_template = f.read()
+    manifest = manifest_template.format(**buildVars.addon_info)
+    with codecs.open(dest, "w", "utf-8") as f:
+        f.write(manifest)
+
+
+def addonGenerator(target, source, env, for_signature):
+    action = env.Action(
+        lambda target, source, env: createAddonBundleFromPath(source[0].abspath, target[0].abspath) and None,
+        lambda target, source, env: "Generating Addon %s" % target[0]
+    )
+    return action
+
+
+def manifestGenerator(target, source, env, for_signature):
+    action = env.Action(
+        lambda target, source, env: generateManifest(source[0].abspath, target[0].abspath) and None,
+        lambda target, source, env: "Generating manifest %s" % target[0]
+    )
+    return action
+
+
+env['BUILDERS']['NVDAAddon'] = Builder(generator=addonGenerator)
+env['BUILDERS']['NVDAManifest'] = Builder(generator=manifestGenerator)
+
+# Generate manifest
+manifest = env.NVDAManifest(
+    os.path.join("addon", "manifest.ini"),
+    os.path.join("manifest.ini.tpl")
+)
+
+# Build addon
+addon = env.NVDAAddon(addonFile, env.Dir('addon'))
+
+# Addon depends on manifest
+env.Depends(addon, manifest)
+
+# Track python source dependencies
+for pattern in buildVars.pythonSources:
+    for file in env.Glob(pattern):
+        env.Depends(addon, file)
+
+# Default target
+env.Default(addon)

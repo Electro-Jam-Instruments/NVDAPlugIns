@@ -49,6 +49,9 @@ desktop.ini
 
 # NVDA addon build artifacts
 *.nvda-addon
+# manifest.ini is generated from manifest.ini.tpl by scons
+*/addon/manifest.ini
+.sconsign.dblite
 
 # Temporary files
 *.tmp

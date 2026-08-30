@@ -8,6 +8,7 @@ Multi-plugin repository for NVDA accessibility addons.
 |--------|-------------|------|
 | `powerpoint-comments/` | PowerPoint comments and notes navigation | `powerpoint-comments/CLAUDE.md` |
 | `windows-dictation-silence/` | Auto-silence NVDA during voice typing | `windows-dictation-silence/docs/` |
+| `spatial-typing-feedback/` | Stereo-separated character echo, word echo and typing errors (in design) | `spatial-typing-feedback/docs/` |
 
 ## Documentation
 

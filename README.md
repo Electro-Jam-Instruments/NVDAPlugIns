@@ -10,6 +10,7 @@ These NVDA add-ons aim to help screen reader users working with Microsoft Office
 |--------|--------------|--------|------|
 | **PowerPoint Comments and Notes** | Announces comment counts on slide change and reads custom presenter notes in edit and slideshow modes | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/powerpoint-comments-latest-beta.nvda-addon) |
 | **Windows Dictation Silence** | Auto-silence NVDA during Windows Voice Typing (Win+H) | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/windows-dictation-silence-latest-beta.nvda-addon) |
+| **Spatial Typing Feedback** | Separates typing echo, completed words and typing errors by stereo position using a second voice | [stable](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/spatial-typing-feedback-latest.nvda-addon) | [beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/spatial-typing-feedback-latest-beta.nvda-addon) |
 
 [All Releases](https://github.com/Electro-Jam-Instruments/NVDAPlugIns/releases) - Previous versions and release notes
 
@@ -40,6 +41,7 @@ Each plugin has its own documentation with full feature lists and keyboard short
 
 - [PowerPoint Comments](powerpoint-comments/README.md) - Full feature guide
 - [Windows Dictation Silence](windows-dictation-silence/README.md) - How it works
+- [Spatial Typing Feedback](spatial-typing-feedback/README.md) - Stream layout and settings
 
 ## Contributing
 
