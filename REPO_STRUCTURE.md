@@ -63,8 +63,9 @@ Multi-plugin repository for NVDA accessibility addons developed by Electro Jam I
 - sconstruct - Scons build script
 - manifest.ini.tpl - Addon manifest template
 - site_scons/ - Scons helpers
-- addon/globalPlugins/spatialTypingFeedback.py - Main plugin file
-- docs/ - Requirements, architecture decisions and NVDA hook research
+- addon/globalPlugins/spatialTypingFeedback/ - Plugin package
+- docs/architecture.md - How it works and why
+- docs/research/ - Verified NVDA and Windows API reference
 
 **Other directories:**
 - deletedocs/ - Archived/deprecated documentation
@@ -140,9 +141,10 @@ NVDAPlugIns/
 │   ├── site_scons/              # Scons helpers
 │   ├── addon/
 │   │   └── globalPlugins/
-│   │       └── spatialTypingFeedback.py
-│   └── docs/                    # Plugin-specific docs
-│       └── research/            # NVDA audio and typing hook research
+│   │       └── spatialTypingFeedback/   # Plugin package
+│   └── docs/
+│       ├── architecture.md      # How it works and why
+│       └── research/            # Verified NVDA and Windows API reference
 │
 ├── deletedocs/                  # Archived/deprecated documentation
 └── localdocs/                   # Local-only documentation (not deployed)

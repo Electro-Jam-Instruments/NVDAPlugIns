@@ -1,52 +1,52 @@
 # Spatial Typing Feedback - NVDA Addon
 
-Separates typing feedback from NVDA's main speech by stereo position and voice, so the two stop competing for your attention.
+Moves the character echo out of the way, so typing stops colliding with what NVDA is reading.
 
 ## Status
 
-**Status:** Beta
+**Status:** Active Development
 
-## Features
+## What you hear
 
-### Three streams, three places
+| Where | What |
+|-------|------|
+| **Centre** | NVDA's voice, and each word as you complete it |
+| **Right, quieter** | Each character as you type it, in a second voice |
+| **Left, quieter** | The alert when you finish a misspelled word |
 
-| Stream | What you hear |
-|-------|---------------|
-| **Main** (centre) | NVDA's main voice, and each word as you complete it |
-| **Chars** (right, quieter) | Each character as you type it |
-| **Errors** (left, quieter) | The alert when you finish a misspelled word |
+The centre is what you listen to. The two sides inform from the periphery without
+competing for it.
 
-Main is what you listen to. Chars and Errors sit the same distance out at the same
-level, so they inform without competing.
+### Example
 
-- **Honours your settings**: uses NVDA's existing *Speak typed characters* and *Speak typed words* settings, including "edit controls only" and password field suppression
+**Typing `recieve ` in Word while NVDA reads the previous line:**
 
-### Secondary voice
-- **Same voice as your main one**: matching Windows OneCore voice, rate, pitch and rate boost - the streams are told apart by position, not by sounding different
-- **Rate boost supported**: the echo runs at the same boosted rate as your main voice, so it never lags behind
-
-### Example: What You Hear
-
-**Typing `recieve ` in Word with both echoes on, while the main voice reads the previous line:**
-
-> Centre: previous line continues uninterrupted
+> Centre: the previous line continues uninterrupted
 > Right, quieter: "r" "e" "c" "i" "e" "v" "e"
 > Centre, on the space: "recieve"
-> Left, quieter, on the space: error sound
+> Left, quieter, on the space: the error alert
 
-### Adjusting on the fly
-- **Uses NVDA's settings ring**: `Ctrl+NVDA+Left/Right` to reach the add-on's settings, `Ctrl+NVDA+Up/Down` to change them - the same keys you already use for rate and pitch
-- **Two new slots**: one to pick which stream you're adjusting, one to set its stereo position on a familiar -50 / centre / +50 scale
-- **Every stream moves**, including your main voice, which sits centre by default
-- **One switch to turn it all off**: back to NVDA's normal behaviour instantly
+### The second voice
 
-### Adjusting on the fly
+- Uses your installed Windows voices - the same ones NVDA offers
+- Its own voice, speed, pitch and volume, independent of your main voice
+- Rate boost available, so it can keep up with a fast main voice
 
-Stream positions and levels are fixed in this build - they become adjustable once the
-values have settled. Two commands are available now:
+## Tuning it
 
-- `NVDA+shift+p` - play a test phrase at each stream position
-- `NVDA+shift+s` - toggle spatial typing feedback on and off
+Everything is adjustable from NVDA's settings ring, so you hear each change as you make
+it. `Ctrl+NVDA+Left/Right` to move between settings, `Ctrl+NVDA+Up/Down` to change them.
+
+Pick a **stream** - main, characters or errors - then adjust that stream's voice, speed,
+rate boost, pitch, volume, punctuation pauses and stereo position. Controls that do not
+apply to a stream say so.
+
+Changes to the character stream are spoken **by the character voice**, at its own
+position and speed, so the announcement doubles as the sample.
+
+Settings are saved when you leave the ring.
+
+Also: `NVDA+shift+p` plays a test at each position, `NVDA+shift+s` toggles the add-on.
 
 ## Installation
 
@@ -56,31 +56,31 @@ values have settled. Two commands are available now:
 
 **Direct download:** [Latest Beta](https://electro-jam-instruments.github.io/NVDAPlugIns/downloads/spatial-typing-feedback-latest-beta.nvda-addon)
 
+To hear the character stream you need **Speak typed characters** enabled in
+NVDA → Preferences → Settings → Keyboard.
+
 ## Not compatible with Sound Split
 
-NVDA's Sound Split changes channel volume for the whole NVDA process, above anything
-this add-on does. If Sound Split is on, this add-on stays off and tells you so. Use one
-or the other.
+NVDA's Sound Split changes channel volume for the whole NVDA process, above anything this
+add-on does. If Sound Split is on, this add-on stays off and tells you so. Use one or the
+other.
 
 ## Requirements
 
-- NVDA 2024.1 or later
+- NVDA 2025.1 or later
 - Windows 11
-- Windows OneCore voices (the secondary voice matches your main one)
+- Windows voices installed
 - A stereo output device - positioning has no effect on mono output
 
 ## Technical Details
 
-- GlobalPlugin architecture for system-wide operation
-- Panning via `nvwave.WavePlayer.setVolume(left=, right=)`
-- Secondary voice is a second independent Windows OneCore instance, so it offers the same voices and the same rate boost as NVDA's main synthesizer
-- Audio synthesised to a buffer, upmixed to stereo and played through our own wave player, so NVDA's single-synthesizer model is left intact
-- Character and word echo both intercepted at `speech.speakTypedCharacters`, where NVDA decides them
-- Error sound redirected through the `nvwave.decide_playWaveFile` extension point
+- The character voice is a Windows `SpeechSynthesizer` the add-on activates itself, so it
+  offers the same voices as NVDA without depending on NVDA's internals
+- Positioning uses a constant-power pan law over per-channel volume
+- Typed characters and completed words are separated at `speech.speakTypedCharacters`
+- The error alert is redirected through the `nvwave.decide_playWaveFile` extension point
 
 ## Building
-
-This addon uses the standard NVDA scons build system:
 
 ```bash
 cd spatial-typing-feedback
@@ -91,10 +91,8 @@ Output: `spatialTypingFeedback-X.X.X.nvda-addon`
 
 ## Documentation
 
-See the `docs/` folder for developer documentation:
-- User requirements
-- Architecture decisions
-- Research on the NVDA hooks this addon depends on
+See `docs/` - `architecture.md` for how it works and why, and
+`research/nvda-and-winrt-reference.md` for the exact APIs it relies on.
 
 ## License
 

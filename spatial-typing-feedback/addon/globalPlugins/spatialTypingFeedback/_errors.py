@@ -1,6 +1,6 @@
 # Positioning NVDA's typing-error alert.
 #
-# See docs/architecture-decisions.md Decision D5.
+# See docs/architecture.md.
 #
 # NVDA reports spelling errors three ways. Only ONE of them is a typing event:
 #
@@ -24,8 +24,9 @@ TEXT_ERROR_WAV = "texterror.wav"
 class ErrorAlertInterceptor(object):
     """Plays the typing-error alert at our own position instead of NVDA's."""
 
-    def __init__(self, player):
+    def __init__(self, player, onWavePath=None):
         self._player = player
+        self._onWavePath = onWavePath
         self._installed = False
 
     def install(self):
@@ -64,6 +65,10 @@ class ErrorAlertInterceptor(object):
                 return True
             if not fileName or os.path.basename(fileName).lower() != TEXT_ERROR_WAV:
                 return True
+            if self._onWavePath is not None:
+                # Remember the path NVDA used. It is correct by construction,
+                # which one we build ourselves is not guaranteed to be.
+                self._onWavePath(fileName)
             self._player.feedWaveFile(fileName)
             return False
         except Exception:  # noqa: BLE001

@@ -1,6 +1,6 @@
 # Intercepting NVDA's typing echo.
 #
-# See docs/architecture-decisions.md Decision D4. Character echo (R1) and word echo (R3)
+# See docs/architecture.md. Character echo and word echo
 # are two branches of ONE function, speech.speakTypedCharacters, so this is one hook.
 
 import speech
@@ -26,9 +26,15 @@ class EchoInterceptor(object):
     small.
     """
 
-    def __init__(self, onWord, onChar):
+    def __init__(self, onChar, onWord=None):
+        """@param onWord: where completed words go. None means leave them with NVDA's
+            main voice, which is the default and usually what you want - the main voice
+            already has the user's rate, pitch and rate boost, and the word echo is not
+            the stream that needed moving out of the way.
+        """
         self._onWord = onWord
         self._onChar = onChar
+        self._origSpeakText = None
         self._original = None
         self._installed = False
 
@@ -72,6 +78,7 @@ class EchoInterceptor(object):
         """Run NVDA's logic, capture its output, speak it ourselves."""
         origSpeakText = speechModule.speakText
         origSpeakSpelling = speechModule.speakSpelling
+        self._origSpeakText = origSpeakText
         speechModule.speakText = self._captureWord
         speechModule.speakSpelling = self._captureChar
         try:
@@ -83,6 +90,10 @@ class EchoInterceptor(object):
             speechModule.speakSpelling = origSpeakSpelling
 
     def _captureWord(self, text, *args, **kwargs):
+        if self._onWord is None:
+            # Not ours: hand it back to NVDA's main voice untouched.
+            self._origSpeakText(text, *args, **kwargs)
+            return
         try:
             self._onWord(text)
         except Exception:  # noqa: BLE001

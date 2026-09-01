@@ -1,7 +1,7 @@
 # Panned audio output.
 #
 # Everything here exists because nvwave.WavePlayer.setVolume() is per-channel but the
-# audio we are given is mono. See docs/architecture-decisions.md Decisions D2, D8, D10.
+# audio we are given is mono. See docs/architecture.md.
 
 import array
 import math
@@ -70,7 +70,8 @@ class PannedPlayer(object):
     channels to work with.
     """
 
-    def __init__(self, samplesPerSec=22050, bitsPerSample=16, purpose=None):
+    def __init__(self, name="player", samplesPerSec=22050, bitsPerSample=16, purpose=None):
+        self.name = name
         self._samplesPerSec = samplesPerSec
         self._bitsPerSample = bitsPerSample
         self._purpose = purpose
@@ -78,6 +79,9 @@ class PannedPlayer(object):
         self._left = 1.0
         self._right = 1.0
         self._panSupported = True
+        #: What is currently live on the device. Channel volume is applied only when
+        #: this no longer matches, never per utterance.
+        self._appliedVolume = None
 
     def _ensurePlayer(self, samplesPerSec):
         if self._player is not None and self._samplesPerSec == samplesPerSec:
@@ -92,6 +96,8 @@ class PannedPlayer(object):
             except Exception:  # noqa: BLE001
                 log.debugWarning("Error idling previous player", exc_info=True)
         self._samplesPerSec = samplesPerSec
+        # A new device starts at its own default, so whatever we applied is gone.
+        self._appliedVolume = None
         kwargs = {
             "channels": 2,
             "samplesPerSec": samplesPerSec,
@@ -111,19 +117,39 @@ class PannedPlayer(object):
     def setPosition(self, pan, volumePercent=100):
         """Set where this player sits and how loud it is."""
         self._left, self._right = panToChannels(pan, volumePercent)
+        self._appliedVolume = None
+        log.debug(
+            "Spatial Typing Feedback: %s pan=%s vol=%s -> left=%.3f right=%.3f"
+            % (self.name, pan, volumePercent, self._left, self._right),
+        )
 
     def _applyPosition(self):
         """Push our channel gains into the player.
 
-        Re-applied before every feed rather than once at creation: WavePlayer.open()
-        and .stop() both call _setVolumeFromConfig(), which calls setVolume(all=...)
-        and wipes panning. That only bites players created with AudioPurpose.SOUNDS,
-        but re-applying is cheap and removes the whole class of bug.
+        Re-applied before every feed rather than once at creation, for two reasons:
+
+        - WavePlayer.open() and .stop() both call _setVolumeFromConfig(), which calls
+          setVolume(all=...) and wipes panning. That only bites players created with
+          AudioPurpose.SOUNDS, but re-applying is cheap and removes the whole class of
+          bug.
+        - Channel volume has to land on an open device. feed() opens the player itself,
+          so setting volume beforehand can be setting it on nothing. We open explicitly
+          first, then set, then feed.
         """
         if self._player is None or not self._panSupported:
             return
+        if self._appliedVolume == (self._left, self._right):
+            # Already live on this device. Re-applying per utterance is what produced
+            # audible bursts: WASAPI channel volume changes are not sample accurate, so
+            # setting them repeatedly against playing audio is heard.
+            return
+        try:
+            self._player.open()
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Error opening player before setting volume", exc_info=True)
         try:
             self._player.setVolume(left=self._left, right=self._right)
+            self._appliedVolume = (self._left, self._right)
         except OSError:
             # Mono output device: no channel 1 to set. Positioning is meaningless here,
             # so stop trying rather than raising on every utterance.

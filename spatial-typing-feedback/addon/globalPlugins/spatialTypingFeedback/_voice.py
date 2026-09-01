@@ -1,255 +1,366 @@
-# A second, independent Windows OneCore voice.
+# The SAPI 5 fallback voice.
 #
-# See docs/architecture-decisions.md Decision D3.
+# The primary engine is _winrt.py, which activates a Windows SpeechSynthesizer directly
+# and offers the same voices as NVDA's own synthesizer.
 #
-# OneCore is token-based: ocSpeech_initialize() returns a HANDLE and every subsequent
-# call takes it. Instances are therefore independent, unlike eSpeak which is bound to
-# module-level global state. We go to the ocSpeech layer directly rather than
-# instantiating OneCoreSynthDriver, because that way we own the callback - and
-# therefore the WavePlayer we need to pan.
+# This is for machines where that fails: no Windows voices installed, or an activation
+# error. It uses older voice builds and tops out near three times normal speed, so it is a
+# genuine downgrade - but a working downgrade beats no character echo.
+#
+# Its interface is deliberately identical to WinRTVoice. A fallback that cannot be called
+# the same way as the thing it replaces is not a fallback; letting the two drift apart once
+# cost an evening of silent keystrokes.
 
-import ctypes
-import io
-import wave
-from ctypes.wintypes import HANDLE
+import math
+import queue
+import threading
 
 import comtypes
-import NVDAHelper
+import comtypes.client
 from logHandler import log
 
-from ._audio import WAVE_HEADER_LENGTH, PannedPlayer
+from ._audio import PannedPlayer
 
-#: Signature of the callback ocSpeech hands audio back through.
-ocSpeech_Callback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
+#: SpeechAudioFormatType.SAFT22kHz16BitMono
+SAFT_22KHZ_16BIT_MONO = 22
+SAMPLES_PER_SEC = 22050
 
-#: Rate mapping, matching NVDA's oneCore driver exactly.
-#: Rate boost is nothing more than raising the top of this range.
-MIN_RATE = 0.5
-DEFAULT_MAX_RATE = 1.5
-BOOSTED_MAX_RATE = 6.0
+#: SAPI 5 rate runs -10..+10, where +10 is roughly three times normal speed.
+SAPI_RATE_MIN = -10
+SAPI_RATE_MAX = 10
+SAPI_RATE_MAX_MULTIPLIER = 3.0
 
-MIN_PITCH = 0.0
-MAX_PITCH = 2.0
+#: OneCore's rate mapping, so we can match the speed the user actually has.
+ONECORE_MIN_RATE = 0.5
+ONECORE_DEFAULT_MAX_RATE = 1.5
+ONECORE_BOOSTED_MAX_RATE = 6.0
+
+_STOP = object()
 
 
-def _percentToParam(percent, minVal, maxVal):
-    return float(percent) / 100 * (maxVal - minVal) + minVal
+def oneCoreRateToSapi(rate, rateBoost):
+    """Convert an NVDA OneCore rate into the nearest SAPI 5 rate.
+
+    OneCore's raw rate *is* a speed multiplier: 0-100 maps onto 0.5-1.5, or 0.5-6.0
+    with rate boost. SAPI's scale is roughly logarithmic, about 3x at +10. Converting
+    through the multiplier keeps the secondary voice at the speed the user actually
+    has, rather than at whatever number the two scales happen to share.
+
+    Rate boost is why OneCore was chosen in the first place, so an echo that lags behind
+    the main voice would defeat the point.
+    """
+    maxRate = ONECORE_BOOSTED_MAX_RATE if rateBoost else ONECORE_DEFAULT_MAX_RATE
+    multiplier = float(rate) / 100 * (maxRate - ONECORE_MIN_RATE) + ONECORE_MIN_RATE
+    multiplier = max(0.1, multiplier)
+    sapiRate = SAPI_RATE_MAX * math.log(multiplier) / math.log(SAPI_RATE_MAX_MULTIPLIER)
+    return int(round(max(SAPI_RATE_MIN, min(SAPI_RATE_MAX, sapiRate))))
 
 
-class OneCoreVoice(object):
-    """One independent OneCore instance, rendered to a panned player of our own.
+def voiceKeywordFromOneCoreId(voiceId):
+    """Pull a matchable name out of a OneCore voice ID.
 
-    Each instance owns a token, a callback and a PannedPlayer, so two of them can speak
-    at different positions and levels at the same instant - which is required, because
-    one space fires the word echo and the character echo together.
+    OneCore IDs look like
+    ...\\Speech_OneCore\\Voices\\Tokens\\MSTTS_V110_enUS_ZiraM
+    and the nearest SAPI voice is described as "Microsoft Zira Desktop - English".
+    The shared part is the name, so that is what we match on.
+    """
+    if not voiceId:
+        return None
+    token = voiceId.rstrip("\\").split("\\")[-1]
+    parts = token.split("_")
+    if not parts:
+        return None
+    name = parts[-1]
+    # A trailing capital denotes the OneCore build (ZiraM, DavidM); drop it.
+    if len(name) > 2 and name[-1].isupper() and name[-2].islower():
+        name = name[:-1]
+    return name or None
+
+
+class SapiVoice(object):
+    """A SAPI 5 voice rendering into panned players we own.
+
+    Synthesis runs on a worker thread. SAPI's Speak() into a memory stream is
+    synchronous, and blocking NVDA's main thread on every typed character would be
+    worse than no echo at all.
+
+    Each queued utterance carries its destination player, so one voice serves several
+    streams at different positions and levels.
     """
 
     def __init__(self, name="secondary"):
         self.name = name
         self.available = False
-        self.supportsProsodyOptions = False
-        self._dll = None
-        self._token = None
-        self._callbackInst = None
-        self._earlyExitCB = False
-        self._queue = []
-        self._rate = 50
-        self._rateBoost = False
-        self._pitch = 50
-        self._volume = 100
-        self.player = PannedPlayer()
+        self.spokeSuccessfully = False
+        self.lastError = None
+        self._voice = None
+        self._format = None
+        self._queue = None
+        self._thread = None
+        self._stopping = False
+        self.player = PannedPlayer(name)
 
     # -- lifecycle --------------------------------------------------------------
 
     def initialize(self):
-        """Create our own ocSpeech token. Returns True on success.
-
-        This is the assumption the whole design rests on: that ocSpeech_initialize can
-        be called a second time while NVDA's own OneCore driver holds a live token.
-        """
         try:
-            self._dll = NVDAHelper.getHelperLocalWin10Dll()
-        except Exception:  # noqa: BLE001
-            log.error("Spatial Typing Feedback: could not load helperLocalWin10", exc_info=True)
-            return False
-        try:
-            self._dll.ocSpeech_initialize.restype = HANDLE
-            self._dll.ocSpeech_getCurrentVoiceLanguage.restype = ctypes.c_wchar_p
-            self._dll.ocSpeech_supportsProsodyOptions.restype = ctypes.c_bool
-            self.supportsProsodyOptions = bool(self._dll.ocSpeech_supportsProsodyOptions())
-            if self.supportsProsodyOptions:
-                self._dll.ocSpeech_getPitch.restype = ctypes.c_double
-                self._dll.ocSpeech_getVolume.restype = ctypes.c_double
-                self._dll.ocSpeech_getRate.restype = ctypes.c_double
-            else:
-                log.warning(
-                    "Spatial Typing Feedback: OneCore prosody options unsupported; "
-                    "rate, pitch and volume cannot be set on the secondary voice",
-                )
-            self._callbackInst = ocSpeech_Callback(self._callback)
-            token = HANDLE()
-            token.value = self._dll.ocSpeech_initialize(self._callbackInst)
-            if not token.value:
-                log.error(
-                    "Spatial Typing Feedback: ocSpeech_initialize returned a null token "
-                    "for the %s voice" % self.name,
-                )
-                return False
-            self._token = token
-            self._dll.ocSpeech_getVoices.restype = comtypes.BSTR
-            self._dll.ocSpeech_getCurrentVoiceId.restype = ctypes.c_wchar_p
-        except Exception:  # noqa: BLE001
+            self._voice = comtypes.client.CreateObject("SAPI.SpVoice")
+            self._format = comtypes.client.CreateObject("SAPI.SpAudioFormat")
+            self._format.Type = SAFT_22KHZ_16BIT_MONO
+        except Exception as e:  # noqa: BLE001
+            self.lastError = str(e)
             log.error(
-                "Spatial Typing Feedback: failed to create a second OneCore instance (%s)"
-                % self.name,
+                "Spatial Typing Feedback: could not create a SAPI 5 voice (%s)" % self.name,
                 exc_info=True,
             )
-            self._token = None
-            self._callbackInst = None
+            self._voice = None
             return False
+        self._queue = queue.Queue()
+        self._stopping = False
+        self._thread = threading.Thread(
+            target=self._worker,
+            name="spatialTypingFeedback-%s" % self.name,
+            daemon=True,
+        )
+        self._thread.start()
         self.available = True
-        log.info("Spatial Typing Feedback: %s OneCore voice initialized" % self.name)
+        log.info("Spatial Typing Feedback: %s SAPI voice initialized" % self.name)
         return True
 
     def terminate(self):
-        # Stop pending callbacks touching us, exactly as NVDA's driver does.
-        self._earlyExitCB = True
-        self._queue = []
-        self.player.terminate()
-        if self._token is not None and self._dll is not None:
-            try:
-                self._dll.ocSpeech_terminate(self._token)
-            except Exception:  # noqa: BLE001
-                log.debugWarning("Error terminating ocSpeech token", exc_info=True)
-        # Drop the ctypes callback instance; it holds a reference to a bound method.
-        self._token = None
-        self._callbackInst = None
+        self._stopping = True
         self.available = False
+        if self._queue is not None:
+            try:
+                self._queue.put_nowait(_STOP)
+            except Exception:  # noqa: BLE001
+                pass
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._thread = None
+        self._queue = None
+        self._voice = None
+        self._format = None
+        self.player.terminate()
 
     # -- voice parameters -------------------------------------------------------
 
-    def getAvailableVoiceIds(self):
-        """Return a list of (id, onecoreIndex) for every voice OneCore reports."""
-        if not self.available:
+    def getAvailableVoiceNames(self):
+        if self._voice is None:
             return []
         try:
-            voicesStr = self._dll.ocSpeech_getVoices(self._token).split("|")
+            tokens = self._voice.GetVoices()
+            return [tokens.Item(i).GetDescription() for i in range(tokens.Count)]
         except Exception:  # noqa: BLE001
-            log.debugWarning("Error fetching OneCore voices", exc_info=True)
+            log.debugWarning("Error listing SAPI voices", exc_info=True)
             return []
-        result = []
-        for index, voiceStr in enumerate(voicesStr):
-            parts = voiceStr.split(":")
-            if len(parts) < 3:
-                continue
-            result.append((parts[0], index))
-        return result
 
-    def setVoiceById(self, voiceId):
-        """Match the main synth's voice. Returns True if found and set."""
-        if not self.available or not voiceId:
+    def matchVoice(self, oneCoreVoiceId):
+        """Pick the SAPI voice closest to the main synth's voice.
+
+        Separation is meant to be positional, not timbral, so the nearest available
+        match beats an arbitrary default.
+        """
+        if self._voice is None or not oneCoreVoiceId:
             return False
-        for vid, index in self.getAvailableVoiceIds():
-            if vid == voiceId:
-                try:
-                    self._dll.ocSpeech_setVoice(self._token, index)
+        # Exact match first: the caller may be handing back one of our own descriptions.
+        try:
+            tokens = self._voice.GetVoices()
+            for i in range(tokens.Count):
+                token = tokens.Item(i)
+                if token.GetDescription() == oneCoreVoiceId:
+                    self._voice.Voice = token
                     return True
-                except Exception:  # noqa: BLE001
-                    log.debugWarning("Error setting OneCore voice", exc_info=True)
-                    return False
-        log.debugWarning("Spatial Typing Feedback: voice %r not found for %s" % (voiceId, self.name))
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Error matching SAPI voice by description", exc_info=True)
+        keyword = voiceKeywordFromOneCoreId(oneCoreVoiceId)
+        if not keyword:
+            return False
+        try:
+            tokens = self._voice.GetVoices()
+            for i in range(tokens.Count):
+                token = tokens.Item(i)
+                if keyword.lower() in token.GetDescription().lower():
+                    self._voice.Voice = token
+                    log.info(
+                        "Spatial Typing Feedback: %s matched to SAPI voice %r"
+                        % (self.name, token.GetDescription()),
+                    )
+                    return True
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Error matching SAPI voice", exc_info=True)
+            return False
+        log.info(
+            "Spatial Typing Feedback: no SAPI voice matching %r; using the default. "
+            "Available: %s" % (keyword, self.getAvailableVoiceNames()),
+        )
         return False
 
     def setRate(self, rate, rateBoost=False):
-        """Set rate 0-100, honouring rate boost.
-
-        Rate boost is only a range change: 0-100 maps onto 0.5-6.0 instead of 0.5-1.5.
-        The user is on OneCore for this, so the secondary voice has to have it too -
-        an echo capped at normal speed would still be arriving after the main voice had
-        moved on.
-        """
-        self._rate = rate
-        self._rateBoost = rateBoost
-        if not self.supportsProsodyOptions:
+        if self._voice is None:
             return
-        maxRate = BOOSTED_MAX_RATE if rateBoost else DEFAULT_MAX_RATE
-        self._queueParam(self._dll.ocSpeech_setRate, _percentToParam(rate, MIN_RATE, maxRate))
-
-    def setPitch(self, pitch):
-        self._pitch = pitch
-        if not self.supportsProsodyOptions:
-            return
-        self._queueParam(self._dll.ocSpeech_setPitch, _percentToParam(pitch, MIN_PITCH, MAX_PITCH))
+        sapiRate = oneCoreRateToSapi(rate, rateBoost)
+        try:
+            self._voice.Rate = sapiRate
+            log.info(
+                "Spatial Typing Feedback: %s rate %s (boost=%s) -> SAPI rate %s"
+                % (self.name, rate, rateBoost, sapiRate),
+            )
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Error setting SAPI rate", exc_info=True)
 
     def setVolume(self, volume):
         """Synth volume 0-100. Distinct from the stream level, which is a channel gain."""
-        self._volume = volume
-        if not self.supportsProsodyOptions:
+        if self._voice is None:
             return
-        self._queueParam(self._dll.ocSpeech_setVolume, volume / 100.0)
+        try:
+            self._voice.Volume = max(0, min(100, int(volume)))
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Error setting SAPI volume", exc_info=True)
 
-    def setPosition(self, pan, volumePercent=100):
-        self.player.setPosition(pan, volumePercent)
+    def setPitch(self, pitch):
+        # SAPI pitch is per-utterance XML rather than a property, not a settable one.
+        pass
+
+    # -- interface parity with WinRTVoice -----------------------------------------
+
+    def setRatePercent(self, percent, rateBoost=True):
+        """Set speed from a 0-100 value.
+
+        OneCore maps this onto 0.5x-1.5x, or 0.5x-6.0x with rate boost; SAPI's scale is
+        -10..+10 and roughly logarithmic. Convert through the speed multiplier so the
+        two engines land at a comparable speed rather than a comparable number.
+        """
+        percent = max(0, min(100, int(percent)))
+        maxMultiplier = ONECORE_BOOSTED_MAX_RATE if rateBoost else ONECORE_DEFAULT_MAX_RATE
+        multiplier = ONECORE_MIN_RATE + (percent / 100.0) * (
+            maxMultiplier - ONECORE_MIN_RATE
+        )
+        sapiRate = SAPI_RATE_MAX * math.log(multiplier) / math.log(SAPI_RATE_MAX_MULTIPLIER)
+        sapiRate = int(round(max(SAPI_RATE_MIN, min(SAPI_RATE_MAX, sapiRate))))
+        if self._voice is None:
+            return False
+        try:
+            self._voice.Rate = sapiRate
+            log.info(
+                "Spatial Typing Feedback: %s speed %d%% -> %.2fx -> SAPI rate %d"
+                % (self.name, percent, multiplier, sapiRate),
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Could not set SAPI rate", exc_info=True)
+            return False
+
+    def setPitchPercent(self, percent):
+        # Not settable as a property on SAPI. Accepted so the interfaces match.
+        return False
+
+    def setPunctuationSilence(self, enable):
+        # No SAPI equivalent. Accepted so the interfaces match.
+        return False
+
+    def getAvailableVoiceIds(self):
+        """[(id, index)], matching WinRTVoice.
+
+        SAPI has no OneCore-style IDs, so the description doubles as the identifier.
+        """
+        if self._voice is None:
+            return []
+        try:
+            tokens = self._voice.GetVoices()
+            return [(tokens.Item(i).GetDescription(), i) for i in range(tokens.Count)]
+        except Exception:  # noqa: BLE001
+            log.debugWarning("Error listing SAPI voices", exc_info=True)
+            return []
 
     # -- speaking ---------------------------------------------------------------
 
-    def speak(self, text):
-        if not self.available or not text:
+    def speak(self, text, player=None, kind=None, interrupt=False):
+        """Queue text for a destination player.
+
+        Signature deliberately identical to WinRTVoice.speak. This class exists to
+        stand in for that one, and a substitute that cannot be called the same way is
+        not a substitute.
+
+        @param kind: a label such as "char" or "word", for selective interruption.
+        @param interrupt: drop anything pending OF THE SAME KIND first, so characters
+            interrupt characters without cancelling a word queued behind them.
+        """
+        if not self.available or not text or self._queue is None:
             return
-        self._queue.append(text)
-        self._processQueue()
+        if interrupt:
+            self.cancelKind(kind)
+        self._queue.put((text, player if player is not None else self.player, kind))
+
+    def cancelKind(self, kind):
+        """Drop pending utterances of one kind, leaving the others alone."""
+        if self._queue is None:
+            return
+        keep = []
+        try:
+            while True:
+                item = self._queue.get_nowait()
+                if item is _STOP:
+                    keep.append(item)
+                elif item[2] != kind:
+                    keep.append(item)
+                else:
+                    item[1].stop()
+        except queue.Empty:
+            pass
+        for item in keep:
+            self._queue.put(item)
 
     def cancel(self):
-        # Keep queued parameter changes, drop queued text - same as NVDA's driver.
-        self._queue = [item for item in self._queue if not isinstance(item, str)]
-        self.player.stop()
-
-    def _queueParam(self, func, value):
-        self._queue.append((func, value))
-        self._processQueue()
-
-    def _processQueue(self):
-        if not self.available:
-            return
-        while self._queue:
-            item = self._queue.pop(0)
-            if isinstance(item, tuple):
-                func, value = item
-                try:
-                    func(self._token, ctypes.c_double(value))
-                except Exception:  # noqa: BLE001
-                    log.debugWarning("Error applying OneCore parameter", exc_info=True)
-                continue
-            try:
-                # Async: _callback fires on a background thread when audio is ready,
-                # and processes the queue again from there.
-                self._dll.ocSpeech_speak(self._token, item)
-            except Exception:  # noqa: BLE001
-                log.error("Spatial Typing Feedback: ocSpeech_speak failed", exc_info=True)
-                continue
-            return
-
-    def _callback(self, bytesPtr, length, markers):
-        """Audio has been rendered. Runs on a background thread."""
-        if self._earlyExitCB:
+        if self._queue is None:
             return
         try:
-            if length == 0:
-                log.debugWarning("Spatial Typing Feedback: %s voice produced no audio" % self.name)
-                return
-            header = ctypes.string_at(bytesPtr, WAVE_HEADER_LENGTH)
-            with wave.open(io.BytesIO(header), "r") as wav:
-                samplesPerSec = wav.getframerate()
-                channels = wav.getnchannels()
-                sampleWidth = wav.getsampwidth()
-                dataLen = wav.getnframes() * channels * sampleWidth
-            data = ctypes.string_at(bytesPtr + WAVE_HEADER_LENGTH, dataLen)
-            if channels == 1:
-                self.player.feedMono(data, samplesPerSec)
-            else:
-                self.player.feedStereo(data, samplesPerSec)
+            while True:
+                item = self._queue.get_nowait()
+                if item is not _STOP:
+                    item[1].stop()
+        except queue.Empty:
+            pass
+        self.player.stop()
+
+    def _worker(self):
+        try:
+            comtypes.CoInitializeEx()
         except Exception:  # noqa: BLE001
-            log.error("Spatial Typing Feedback: error in ocSpeech callback", exc_info=True)
-        finally:
-            if not self._earlyExitCB:
-                self._processQueue()
+            log.debugWarning("CoInitializeEx failed on the synthesis thread", exc_info=True)
+        while not self._stopping:
+            try:
+                item = self._queue.get()
+            except Exception:  # noqa: BLE001
+                break
+            if item is _STOP or self._stopping:
+                break
+            text, player = item[0], item[1]
+            try:
+                data = self._synthesize(text)
+            except Exception:  # noqa: BLE001
+                log.error("Spatial Typing Feedback: synthesis failed", exc_info=True)
+                continue
+            if not data:
+                log.debugWarning("Spatial Typing Feedback: no audio produced for %r" % text)
+                continue
+            self.spokeSuccessfully = True
+            player.feedMono(data, SAMPLES_PER_SEC)
+
+    def _synthesize(self, text):
+        """Render text to raw 16-bit mono PCM.
+
+        A fresh memory stream per utterance: reusing one appends each render to the
+        last, so the echo would replay everything typed so far.
+        """
+        stream = comtypes.client.CreateObject("SAPI.SpMemoryStream")
+        stream.Format = self._format
+        self._voice.AudioOutputStream = stream
+        # 0 = SVSFDefault, i.e. synchronous. We are on a worker thread, so that is fine.
+        self._voice.Speak(text, 0)
+        return bytes(bytearray(stream.GetData()))
+
+
+#: The plugin talks to whatever the secondary voice happens to be, so the engine can
+#: change (D12) without touching the rest of the add-on.
+SecondaryVoice = SapiVoice
