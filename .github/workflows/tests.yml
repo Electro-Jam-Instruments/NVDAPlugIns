@@ -30,8 +30,11 @@ jobs:
         run: python tools/check_addons.py
 
   unit:
-    name: Unit tests (Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    name: Unit tests (Windows, Python ${{ matrix.python }})
+    # Windows, not Linux: _winrt.py calls ctypes.WinDLL at import time, because the
+    # character voice IS a Windows API. Stubbing that away would mean the SSML and rate
+    # tests no longer exercise the module that ships.
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
