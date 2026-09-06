@@ -137,10 +137,18 @@ See the `docs/` folder for developer documentation:
 ```
 
 ### 9. License and Author
+
+The licence is **GPL v2, not MIT**. An NVDA addon imports NVDA's modules and subclasses
+its classes, so it is a derivative work of NVDA, which is GPL v2 - the copyleft carries
+over. This repository started on MIT and was deliberately relicensed for that reason.
+Do not copy an MIT block in from another project's template.
+
 ```markdown
 ## License
 
-MIT License - See repository root for details.
+GNU General Public License v2.0 (GPL-2.0)
+
+This addon is a derivative work of NVDA, which is licensed under GPL v2. See [LICENSE](../LICENSE) for full terms.
 
 ## Author
 
@@ -220,7 +228,9 @@ scons
 
 ## License
 
-MIT License - See repository root for details.
+GNU General Public License v2.0 (GPL-2.0)
+
+This addon is a derivative work of NVDA, which is licensed under GPL v2. See [LICENSE](../LICENSE) for full terms.
 
 ## Author
 
