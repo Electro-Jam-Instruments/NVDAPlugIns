@@ -200,7 +200,7 @@ def _getString(ptr, slot):
         combase.WindowsDeleteString(handle)
 
 
-def _await(op, resultsSlot, watchdog=10.0):
+def _await(op, resultsSlot, watchdog=10.0, self_name="secondary"):
     """Wait for an async operation to STOP, then take its result.
 
     Returns (result, stopped). `stopped` is False only when the operation could not be
@@ -237,7 +237,13 @@ def _await(op, resultsSlot, watchdog=10.0):
                 time.sleep(0.002)
             if status.value == ASYNC_STARTED:
                 # Overdue. Cancel it and wait for it to actually stop.
-                log.debugWarning("Spatial Typing Feedback: cancelling overdue operation")
+                # Visible at the default log level on purpose. This should never fire;
+                # if it does it is the best evidence available about a stall, and hiding
+                # it behind debug logging means asking the user to reproduce a crash.
+                log.warning(
+                    "Spatial Typing Feedback: %s operation overdue after %.0fs - "
+                    "cancelling and waiting for it to stop" % (self_name, watchdog),
+                )
                 _call(info, SLOT_ASYNCINFO_CANCEL, [])
                 grace = time.time() + 5.0
                 while stillRunning() and time.time() < grace:
@@ -641,7 +647,7 @@ class WinRTVoice(object):
                     "Spatial Typing Feedback: synthesis failed 0x%08X" % (hr & 0xFFFFFFFF),
                 )
                 return
-            stream, stopped = _await(op, SLOT_OP_GET_RESULTS)
+            stream, stopped = _await(op, SLOT_OP_GET_RESULTS, self_name=self.name)
             if stopped:
                 _release(op)
         finally:
@@ -700,7 +706,8 @@ class WinRTVoice(object):
                          buf, ctypes.c_uint32(size.value), ctypes.c_int(0),
                          ctypes.byref(readOp)) != S_OK:
                     return None
-                filled, stopped = _await(readOp, SLOT_OP_PROGRESS_GET_RESULTS)
+                filled, stopped = _await(readOp, SLOT_OP_PROGRESS_GET_RESULTS,
+                                         self_name=self.name)
                 if stopped:
                     _release(readOp)
                 else:
