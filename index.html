@@ -158,6 +158,29 @@
     </div>
   </div>
 
+  <div class="plugin-card">
+    <h2>Spatial Typing Feedback</h2>
+    <p>Separates typing feedback from NVDA's main speech by stereo position. Typed characters are spoken by a second voice off to the right and quieter, completed words stay centre with your main voice, and typing errors are signalled on the left.</p>
+    <p class="requirements"><strong>Requirements:</strong> NVDA 2024.1+, Windows 11, Windows OneCore voices, stereo output</p>
+
+    <div class="download-section">
+      <a class="download-btn download-stable" href="downloads/spatial-typing-feedback-latest.nvda-addon" id="stf-stable">
+        Download Stable
+      </a>
+      <a class="download-btn download-beta" href="downloads/spatial-typing-feedback-latest-beta.nvda-addon" id="stf-beta">
+        Download Beta
+      </a>
+    </div>
+    <p class="version-info" id="stf-versions">Check GitHub releases for version info</p>
+
+    <button class="changelog-toggle" onclick="toggleChangelog('stf-changelog')" aria-expanded="false" aria-controls="stf-changelog">
+      View Changelog
+    </button>
+    <div class="changelog" id="stf-changelog" role="region" aria-label="Spatial Typing Feedback changelog">
+      <p>Loading changelog...</p>
+    </div>
+  </div>
+
   <div class="install-steps">
     <h2>Installation</h2>
     <ol>
@@ -237,8 +260,10 @@
     // Initialize
     loadChangelog('powerpoint-comments', 'ppt-changelog');
     loadChangelog('windows-dictation-silence', 'wds-changelog');
+    loadChangelog('spatial-typing-feedback', 'stf-changelog');
     loadVersionInfo('powerpoint-comments', 'ppt-stable', 'ppt-beta', 'ppt-versions');
     loadVersionInfo('windows-dictation-silence', 'wds-stable', 'wds-beta', 'wds-versions');
+    loadVersionInfo('spatial-typing-feedback', 'stf-stable', 'stf-beta', 'stf-versions');
   </script>
 </body>
 </html>
