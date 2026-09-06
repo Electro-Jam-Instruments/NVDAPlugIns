@@ -4,7 +4,8 @@ Moves the character echo out of the way, so typing stops colliding with what NVD
 
 ## Status
 
-**Status:** Active Development
+**Status:** Active Development. Installable and working; see
+`docs/TODOs/next-steps.md` for what is still open before a wider beta.
 
 ## What you hear
 
@@ -13,6 +14,7 @@ Moves the character echo out of the way, so typing stops colliding with what NVD
 | **Centre** | NVDA's voice, and each word as you complete it |
 | **Right, quieter** | Each character as you type it, in a second voice |
 | **Left, quieter** | The alert when you finish a misspelled word |
+| **Left, quieter** | NVDA's spoken notes about a marked word - "spelling error" |
 
 The centre is what you listen to. The two sides inform from the periphery without
 competing for it.
@@ -37,7 +39,7 @@ competing for it.
 Everything is adjustable from NVDA's settings ring, so you hear each change as you make
 it. `Ctrl+NVDA+Left/Right` to move between settings, `Ctrl+NVDA+Up/Down` to change them.
 
-Pick a **stream** - main, characters or errors - then adjust that stream's voice, speed,
+Pick a **stream** - main, characters, notes or alert - then adjust that stream's voice, speed,
 rate boost, pitch, volume, punctuation pauses and stereo position. Controls that do not
 apply to a stream say so.
 

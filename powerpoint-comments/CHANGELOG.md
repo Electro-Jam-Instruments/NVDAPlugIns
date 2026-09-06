@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - 0.1.1
+- **Loads on NVDA 2026.x again.** The add-on declared `lastTestedNVDAVersion` 2025.1,
+  so NVDA 2026 flagged it incompatible and refused to run it. Every NVDA symbol the
+  add-on uses was verified against 2026.2 before raising the declaration.
+  This one leans on `from nvdaBuiltin.appModules.powerpnt import *` and on
+  `comtypes.client._events._AdviseConnection`, a private comtypes internal; both were
+  checked explicitly. Verified statically - the symbols exist, the behaviour has not
+  been exercised on 2026.2 yet.
+
+
 ## [0.1.0-beta] - 2026-01-11
 
 First public beta release with complete feature set.

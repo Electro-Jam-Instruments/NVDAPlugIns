@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - 0.1.1
+- **Loads on NVDA 2026.x again.** The add-on declared `lastTestedNVDAVersion` 2025.1,
+  so NVDA 2026 flagged it incompatible and refused to run it. Every NVDA symbol the
+  add-on uses was verified against 2026.2 before raising the declaration.
+  Uses only stable public NVDA APIs, so the change is a declaration bump.
+
+
 ## [0.1.0-beta] - 2026-01-11
 
 Initial public beta release. Full stable release coming soon.

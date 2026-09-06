@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing released yet. Everything below is in the working tree.
+Nothing tagged yet. Everything below is in the working tree.
+
+### Fixed - 0.1.1
+- **NVDA no longer crashes mid-session.** Three memory-safety faults on the speech
+  path, all the same mistake: treating an asynchronous Windows call as finished when
+  it returned. The SSML string was freed while the engine was still reading it; the
+  `_await` timeout abandoned operations still in flight and the caller then released
+  the buffer being written into; and a successful voice change leaked the entire voice
+  collection. Symptom was `nvda.exe` dying inside `MSTTSEngine_OneCore.dll` with
+  `0xc0000409` after hours of use, with nothing in NVDA's log.
+- **Respects NVDA's speech mode and sleep mode.** Silencing NVDA left the character
+  echo talking, which made a quiet main voice look like a broken add-on.
+- A stalled speech operation is now reported in the normal log rather than only under
+  debug logging.
 
 ### Added
 - **Characters off to the right, quieter** - each typed character spoken by a second
   voice, positioned and levelled separately from NVDA's own speech
 - **Typing errors on the left** - NVDA's spelling alert, repositioned
+- **Spelling notes on the left** - NVDA's spoken "spelling error" / "out of spelling
+  error" moved to their own voice and position, so they inform rather than interrupt
 - **A second voice of its own** - independent voice, speed, pitch, rate boost and
   punctuation pauses, drawn from your installed Windows voices
 - **Tuning from NVDA's settings ring** - pick a stream, adjust it, and hear each change
@@ -30,6 +45,5 @@ Nothing released yet. Everything below is in the working tree.
 - Goes dormant when NVDA's Sound Split is enabled; the two are mutually exclusive
 
 ### Known limitations
-- Does not yet respect NVDA's speech mode or sleep mode
 - Replaces NVDA's own settings ring slots rather than adding to them
 - Requires Windows voices and a stereo output device
