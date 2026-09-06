@@ -23,7 +23,7 @@ addon_info = {
     # Translators: Long description to be shown for this add-on on add-on information from add-ons manager
     "addon_description": _("""Navigate and read PowerPoint comments with keyboard shortcuts and automatic announcements."""),
     # version
-    "addon_version": "0.1.0",
+    "addon_version": "0.1.1",
     # Author(s)
     "addon_author": "Electro Jam Instruments <contact@electrojam.com>",
     # URL for the add-on documentation support
@@ -33,7 +33,7 @@ addon_info = {
     # Minimum NVDA version supported
     "addon_minimumNVDAVersion": "2024.1",
     # Last NVDA version supported/tested
-    "addon_lastTestedNVDAVersion": "2025.1",
+    "addon_lastTestedNVDAVersion": "2026.2",
     # Add-on update channel (default is stable)
     "addon_updateChannel": None,
 }

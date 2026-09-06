@@ -24,7 +24,7 @@ addon_info = {
     "addon_description": _("""Automatically turns off NVDA speech when Windows Voice Typing (Win+H) is active.
 Speech is restored when Voice Typing closes."""),
     # version
-    "addon_version": "0.1.0",
+    "addon_version": "0.1.1",
     # Author(s)
     "addon_author": "Electro Jam Instruments <contact@electrojam.com>",
     # URL for the add-on documentation support
@@ -34,7 +34,7 @@ Speech is restored when Voice Typing closes."""),
     # Minimum NVDA version supported
     "addon_minimumNVDAVersion": "2024.1",
     # Last NVDA version supported/tested
-    "addon_lastTestedNVDAVersion": "2025.1",
+    "addon_lastTestedNVDAVersion": "2026.2",
     # Add-on update channel (default is stable)
     "addon_updateChannel": None,
 }
