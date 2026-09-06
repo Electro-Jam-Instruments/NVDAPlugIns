@@ -64,3 +64,11 @@ desktop.ini
 htmlcov/
 # test
 
+
+# scons build artifacts (generated from the .tpl templates on every build)
+.sconsign.dblite
+addon/manifest.ini
+*/addon/manifest.ini
+
+# pytest
+.pytest_cache/
