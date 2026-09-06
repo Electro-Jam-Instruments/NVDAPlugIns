@@ -1,0 +1,81 @@
+# Checks that run on every push and pull request.
+#
+# Deliberately NOT a substitute for testing against a real screen reader. This catches
+# the class of bug that is silent - wrong arithmetic, a deleted function whose callers
+# stayed behind, two engines that drifted apart - and it catches it in seconds instead of
+# via a crash log. What it cannot test is anything that needs audio hardware or a running
+# NVDA; see docs/guides/nvda-testing-guide.md for where that line falls and why.
+
+name: Tests
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Parse, references, engine parity, versions
+        run: python tools/check_addons.py
+
+  unit:
+    name: Unit tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13 is what NVDA 2026 ships. 3.11 keeps the older line honest.
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - name: Spatial Typing Feedback
+        run: python -m pytest spatial-typing-feedback/tests -v
+
+  build:
+    name: Add-ons still package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install scons Markdown
+      - name: Build every add-on
+        run: |
+          set -e
+          for plugin in */; do
+            [ -f "$plugin/sconstruct" ] || continue
+            echo "::group::$plugin"
+            (cd "$plugin" && scons)
+            ls "$plugin"*.nvda-addon
+            echo "::endgroup::"
+          done
+      - name: Nothing stale packaged
+        run: |
+          set -e
+          python - <<'EOF'
+          import glob, sys, zipfile
+          bad = False
+          for path in glob.glob("*/*.nvda-addon"):
+              names = zipfile.ZipFile(path).namelist()
+              stale = [n for n in names if n.endswith(".pyc") or "__pycache__" in n]
+              print("%s: %d files%s" % (path, len(names),
+                                        ", STALE: %s" % stale if stale else ""))
+              bad = bad or bool(stale)
+          sys.exit(1 if bad else 0)
+          EOF
