@@ -21,12 +21,13 @@ addon_info = {
     "addon_summary": _("Spatial typing feedback"),
     # Add-on description
     # Translators: Long description to be shown for this add-on on add-on information from add-ons manager
-    "addon_description": _("""Separates typing feedback from NVDA's main speech by stereo position.
-Typed characters are spoken by a secondary voice panned right, completed words by that same voice
-in the centre, and typing errors are signalled on the left. Side streams play quieter than the centre.
-The secondary voice uses your installed Windows OneCore voices and supports rate boost."""),
+    "addon_description": _("""Moves the character echo out of the way, so typing stops colliding
+with what NVDA is reading. Typed characters are spoken by a second voice off to the right and
+quieter, completed words stay with NVDA's own voice, and typing errors are signalled on the left.
+The second voice has its own voice, speed, pitch and rate boost, all tunable from NVDA's settings
+ring."""),
     # version
-    "addon_version": "0.1.0",
+    "addon_version": "0.1.1",
     # Author(s)
     "addon_author": "Electro Jam Instruments <contact@electrojam.com>",
     # URL for the add-on documentation support
@@ -36,7 +37,7 @@ The secondary voice uses your installed Windows OneCore voices and supports rate
     # Minimum NVDA version supported
     "addon_minimumNVDAVersion": "2025.1",
     # Last NVDA version supported/tested
-    "addon_lastTestedNVDAVersion": "2026.1",
+    "addon_lastTestedNVDAVersion": "2026.2",
     # Add-on update channel (default is stable)
     "addon_updateChannel": None,
 }

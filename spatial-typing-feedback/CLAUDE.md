@@ -19,6 +19,21 @@ number silently pins the voice at maximum, which sounds like a broken mapping.
 boost on:  10%-200%      boost off: 50%-120%  (fine control near normal)
 ```
 
+### An async call keeps using its arguments after it returns
+`SynthesizeSsmlToStreamAsync` and `ReadAsync` return immediately and go on reading the
+SSML string and writing into the buffer. Freeing either one when the *call* returns,
+rather than when the *operation* finishes, corrupts the speech engine's heap. It does not
+fail where you did it: NVDA dies hours later inside `MSTTSEngine_OneCore.dll` with
+`0xc0000409`, and nothing in NVDA's log says it was us - the log just stops.
+
+So `_await` never abandons a running operation. It cancels and waits, and if the
+operation will not stop it deliberately leaks the reference: a few kilobytes is cheaper
+than freeing memory the engine is still writing into. It returns `(result, stopped)`, and
+`stopped` is the caller's permission to free the arguments.
+
+**A timeout that gives up and carries on is not a safety net, it is a scheduled
+use-after-free.**
+
 ### `setVolume` on a mono player raises `E_INVALIDARG`
 Always build players with `channels=2` and upmix. The synthesizer returns mono.
 
@@ -39,6 +54,11 @@ balance makes the centre up to 6 dB louder, and it reads as a volume bug.
 ### Apply channel volume only when it changes
 Setting it before every utterance produced audible bursts - WASAPI channel volume changes
 are not sample accurate. Steady-state typing must set it zero times.
+
+### Release COM objects in `finally`, never on the happy path
+`_doSetVoice` released the voice collection only when the voice was *not* found, so every
+successful voice change leaked the vector and every voice object in it - once per step of
+the ring's Voice setting.
 
 ### The two voice engines share one interface
 `_winrt.WinRTVoice` is primary, `_voice.SapiVoice` is the fallback. Every method the

@@ -14,6 +14,10 @@ class Stream(Enum):
     MAIN = "main"
     CHARS = "chars"
     ERRORS = "errors"
+    #: NVDA's own words about a marked word - "spelling error", "out of spelling error".
+    #: Information about an error rather than part of the sentence, so it belongs with
+    #: the other error feedback, but it is speech and wants its own voice.
+    ANNOTATIONS = "annotations"
 
 
 #: Pan runs -50 (hard left) .. 0 (centre) .. +50 (hard right).
@@ -26,11 +30,21 @@ PAN_MAX = 50
 #: paths but one position.
 #: CHARS and ERRORS are symmetric: same distance out, same level, so they inform from
 #: the periphery without competing with what you are actually listening to.
+#: How far below the main voice the side streams start, in volume points.
+#: Relative rather than absolute so a fresh install lands somewhere sensible whatever
+#: the user's main voice is set to - an absolute default that suits one person's ears is
+#: inaudible or deafening on someone else's.
+SIDE_VOLUME_OFFSET = -15
+
 LAYOUT = {
     Stream.MAIN: (0, 100),
-    Stream.CHARS: (45, 50),
-    Stream.ERRORS: (-45, 50),
+    Stream.CHARS: (40, 50),
+    Stream.ERRORS: (-40, 50),
+    Stream.ANNOTATIONS: (-40, 50),
 }
+
+#: Streams that have a voice of their own and so can be tuned like one.
+VOICE_STREAMS = (Stream.CHARS, Stream.ANNOTATIONS)
 
 #: Speed of the character echo, relative to the main voice.
 #:

@@ -80,6 +80,7 @@ SLOT_STATICS_ALL_VOICES = 6
 SLOT_VECTOR_GET_AT, SLOT_VECTOR_GET_SIZE = 6, 7
 SLOT_VOICE_DISPLAY_NAME, SLOT_VOICE_ID, SLOT_VOICE_LANGUAGE = 6, 7, 8
 SLOT_ASYNCINFO_STATUS = 7
+SLOT_ASYNCINFO_CANCEL = 9
 #: IAsyncOperation has GetResults at 8; IAsyncOperationWithProgress (what ReadAsync
 #: returns) puts Progress first, so its GetResults is at 10.
 SLOT_OP_GET_RESULTS = 8
@@ -133,17 +134,29 @@ combase.RoGetActivationFactory.restype = ctypes.HRESULT
 
 
 class _HString(object):
-    """An HSTRING that frees itself, because leaking one per keystroke would add up."""
+    """An HSTRING with an explicit lifetime.
+
+    Usable as a context manager for SYNCHRONOUS calls only. An asynchronous call keeps
+    reading the string after it returns, so freeing it at the end of the `with` block is
+    a use-after-free inside the speech engine - which crashes the process with
+    STATUS_STACK_BUFFER_OVERRUN, not with anything that looks like our fault. For those,
+    hold the object and call free() once the operation has completed.
+    """
 
     def __init__(self, text):
         self.handle = HSTRING()
         combase.WindowsCreateString(text, len(text), ctypes.byref(self.handle))
 
+    def free(self):
+        if self.handle:
+            combase.WindowsDeleteString(self.handle)
+            self.handle = HSTRING()
+
     def __enter__(self):
         return self.handle
 
     def __exit__(self, *exc):
-        combase.WindowsDeleteString(self.handle)
+        self.free()
 
 
 def _fromHString(handle):
@@ -187,8 +200,17 @@ def _getString(ptr, slot):
         combase.WindowsDeleteString(handle)
 
 
-def _await(op, resultsSlot, timeout=10.0):
-    """Block until an async operation finishes, then take its result.
+def _await(op, resultsSlot, watchdog=10.0):
+    """Wait for an async operation to STOP, then take its result.
+
+    Returns (result, stopped). `stopped` is False only when the operation could not be
+    proven to have finished - in which case the caller must not free anything the
+    operation may still be touching, including its arguments.
+
+    There is deliberately no "give up and carry on" path. Abandoning a running operation
+    and then releasing its buffers is how you corrupt the speech engine's heap, and it
+    surfaces as the whole process dying inside MSTTSEngine_OneCore.dll with no hint that
+    it was us. The watchdog may CANCEL the work; it never walks away from it.
 
     Polls IAsyncInfo rather than registering a completed handler: a handler would mean
     handing WinRT a callback whose lifetime we then have to guarantee across threads,
@@ -198,24 +220,45 @@ def _await(op, resultsSlot, timeout=10.0):
 
     info = _qi(op, IID_IAsyncInfo)
     if not info:
-        return None
+        return None, True
+    status = ctypes.c_int(ASYNC_STARTED)
+
+    def stillRunning():
+        """False once the operation is known to have stopped. Raises if unknowable."""
+        if _call(info, SLOT_ASYNCINFO_STATUS, [ctypes.POINTER(ctypes.c_int)],
+                 ctypes.byref(status)) != S_OK:
+            raise OSError("could not read async status")
+        return status.value == ASYNC_STARTED
+
     try:
-        status = ctypes.c_int(ASYNC_STARTED)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if _call(info, SLOT_ASYNCINFO_STATUS, [ctypes.POINTER(ctypes.c_int)],
-                     ctypes.byref(status)) != S_OK:
-                return None
-            if status.value != ASYNC_STARTED:
-                break
-            time.sleep(0.002)
+        try:
+            deadline = time.time() + watchdog
+            while stillRunning() and time.time() < deadline:
+                time.sleep(0.002)
+            if status.value == ASYNC_STARTED:
+                # Overdue. Cancel it and wait for it to actually stop.
+                log.debugWarning("Spatial Typing Feedback: cancelling overdue operation")
+                _call(info, SLOT_ASYNCINFO_CANCEL, [])
+                grace = time.time() + 5.0
+                while stillRunning() and time.time() < grace:
+                    time.sleep(0.002)
+        except OSError:
+            return None, False
+        if status.value == ASYNC_STARTED:
+            # It refused to stop. Leaking a reference costs a few kilobytes; freeing
+            # memory the engine is still writing into costs the user their screen reader.
+            log.error(
+                "Spatial Typing Feedback: operation would not cancel - leaking it rather "
+                "than freeing memory that is still in use",
+            )
+            return None, False
         if status.value != ASYNC_COMPLETED:
             log.debugWarning("Spatial Typing Feedback: async status %d" % status.value)
-            return None
+            return None, True
         out = ctypes.c_void_p()
         if _call(op, resultsSlot, [ctypes.POINTER(ctypes.c_void_p)], ctypes.byref(out)) != S_OK:
-            return None
-        return out if out.value else None
+            return None, True
+        return (out if out.value else None), True
     finally:
         _release(info)
 
@@ -526,29 +569,38 @@ class WinRTVoice(object):
         try:
             vec = ctypes.c_void_p()
             if _call(statics, SLOT_STATICS_ALL_VOICES, [ctypes.POINTER(ctypes.c_void_p)],
-                     ctypes.byref(vec)) != S_OK:
+                     ctypes.byref(vec)) != S_OK or not vec.value:
                 return
-            count = ctypes.c_uint32()
-            _call(vec, SLOT_VECTOR_GET_SIZE, [ctypes.POINTER(ctypes.c_uint32)],
-                  ctypes.byref(count))
-            for i in range(count.value):
-                item = ctypes.c_void_p()
-                if _call(vec, SLOT_VECTOR_GET_AT,
-                         [ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)],
-                         ctypes.c_uint32(i), ctypes.byref(item)) != S_OK:
-                    continue
-                info = _qi(item, IID_IVoiceInformation)
-                found = info and _getString(info, SLOT_VOICE_ID) == voiceId
-                if info:
-                    _release(info)
-                if found:
-                    _call(self._synth, SLOT_SYNTH_PUT_VOICE, [ctypes.c_void_p], item)
-                    self._lang = self._voiceLanguages.get(voiceId, "en-US")
-                    log.info("Spatial Typing Feedback: %s voice set" % self.name)
-                    _release(item)
-                    return
-                _release(item)
-            _release(vec)
+            # The collection holds a reference to every installed voice, so returning
+            # from the middle of the loop without releasing it leaks all of them - once
+            # per voice change, which is a thing the user does repeatedly from the ring.
+            try:
+                count = ctypes.c_uint32()
+                _call(vec, SLOT_VECTOR_GET_SIZE, [ctypes.POINTER(ctypes.c_uint32)],
+                      ctypes.byref(count))
+                for i in range(count.value):
+                    item = ctypes.c_void_p()
+                    if _call(vec, SLOT_VECTOR_GET_AT,
+                             [ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)],
+                             ctypes.c_uint32(i), ctypes.byref(item)) != S_OK:
+                        continue
+                    try:
+                        info = _qi(item, IID_IVoiceInformation)
+                        if not info:
+                            continue
+                        try:
+                            found = _getString(info, SLOT_VOICE_ID) == voiceId
+                        finally:
+                            _release(info)
+                        if found:
+                            _call(self._synth, SLOT_SYNTH_PUT_VOICE, [ctypes.c_void_p], item)
+                            self._lang = self._voiceLanguages.get(voiceId, "en-US")
+                            log.info("Spatial Typing Feedback: %s voice set" % self.name)
+                            return
+                    finally:
+                        _release(item)
+            finally:
+                _release(vec)
         finally:
             _release(statics)
 
@@ -574,15 +626,28 @@ class WinRTVoice(object):
         )
 
     def _doSpeak(self, text, player):
-        with _HString(self._buildSsml(text)) as hText:
+        # The SSML string must outlive the asynchronous call, not the statement that
+        # starts it. Freeing it early corrupts the speech engine's heap and takes the
+        # whole process down.
+        ssml = _HString(self._buildSsml(text))
+        stopped = True
+        try:
             op = ctypes.c_void_p()
             hr = _call(self._synth, SLOT_SYNTH_SSML_ASYNC,
-                       [HSTRING, ctypes.POINTER(ctypes.c_void_p)], hText, ctypes.byref(op))
-        if hr != S_OK or not op.value:
-            log.error("Spatial Typing Feedback: synthesis failed 0x%08X" % (hr & 0xFFFFFFFF))
-            return
-        stream = _await(op, SLOT_OP_GET_RESULTS)
-        _release(op)
+                       [HSTRING, ctypes.POINTER(ctypes.c_void_p)], ssml.handle,
+                       ctypes.byref(op))
+            if hr != S_OK or not op.value:
+                log.error(
+                    "Spatial Typing Feedback: synthesis failed 0x%08X" % (hr & 0xFFFFFFFF),
+                )
+                return
+            stream, stopped = _await(op, SLOT_OP_GET_RESULTS)
+            if stopped:
+                _release(op)
+        finally:
+            # Only safe once synthesis has stopped reading it.
+            if stopped:
+                ssml.free()
         if not stream:
             return
         try:
@@ -622,6 +687,7 @@ class WinRTVoice(object):
                      [ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)],
                      ctypes.c_uint32(size.value), ctypes.byref(buf)) != S_OK:
                 return None
+            bufSafe = True
             inp = _qi(stream, IID_IInputStream)
             if not inp:
                 _release(buf)
@@ -634,8 +700,12 @@ class WinRTVoice(object):
                          buf, ctypes.c_uint32(size.value), ctypes.c_int(0),
                          ctypes.byref(readOp)) != S_OK:
                     return None
-                filled = _await(readOp, SLOT_OP_PROGRESS_GET_RESULTS)
-                _release(readOp)
+                filled, stopped = _await(readOp, SLOT_OP_PROGRESS_GET_RESULTS)
+                if stopped:
+                    _release(readOp)
+                else:
+                    bufSafe = False
+                    return None
                 if not filled:
                     return None
                 try:
@@ -656,6 +726,7 @@ class WinRTVoice(object):
                     _release(filled)
             finally:
                 _release(inp)
-                _release(buf)
+                if bufSafe:
+                    _release(buf)
         finally:
             _release(ras)

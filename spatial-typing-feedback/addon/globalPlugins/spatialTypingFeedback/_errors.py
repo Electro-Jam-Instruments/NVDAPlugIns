@@ -24,9 +24,13 @@ TEXT_ERROR_WAV = "texterror.wav"
 class ErrorAlertInterceptor(object):
     """Plays the typing-error alert at our own position instead of NVDA's."""
 
-    def __init__(self, player, onWavePath=None):
+    def __init__(self, player, onWavePath=None, positionSequenceSounds=False,
+                 shouldPlay=None):
+        #: Asked before repositioning anything, so a silenced NVDA silences us too.
+        self._shouldPlay = shouldPlay
         self._player = player
         self._onWavePath = onWavePath
+        self._positionSequenceSounds = positionSequenceSounds
         self._installed = False
 
     def install(self):
@@ -58,10 +62,20 @@ class ErrorAlertInterceptor(object):
         self._installed = False
 
     def _decide(self, fileName=None, asynchronous=True, isSpeechWaveFileCommand=False, **kwargs):
-        """Return False to cancel NVDA's playback because we are handling it."""
+        """Return False to cancel NVDA's playback because we are handling it.
+
+        Both the typing-time alert and the one embedded in a speech sequence are
+        positioned. The embedded one keeps its place in the sentence regardless: the
+        speech manager still fires it at the same point, we only change where it comes
+        from.
+        """
         try:
-            if isSpeechWaveFileCommand:
-                # Part of a speech sequence - belongs with the main voice.
+            if self._shouldPlay is not None and not self._shouldPlay():
+                # NVDA has been silenced; let it decide, do not reposition.
+                return True
+            if isSpeechWaveFileCommand and not self._positionSequenceSounds:
+                # Part of a speech sequence. Left with the main voice by default; see
+                # the annotations option.
                 return True
             if not fileName or os.path.basename(fileName).lower() != TEXT_ERROR_WAV:
                 return True

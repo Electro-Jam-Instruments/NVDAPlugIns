@@ -5,12 +5,22 @@ ticked off - the design is described in `../architecture.md`.
 
 ## Correctness
 
-- [ ] **Respect NVDA's speech mode.** Set NVDA to off or beeps, or press Control, and the
-      character voice keeps talking. We bypass NVDA's `speak()`, so we never see the mode.
-      An add-on that talks after the screen reader has been silenced is the kind of thing
-      that gets uninstalled in the first minute.
-- [ ] **Respect sleep mode.** In applications where NVDA has been told to stay quiet
-      (self-voicing apps), we still echo.
+- [x] **Respect NVDA's speech mode and sleep mode.** Done. Our audio bypasses speak(),
+      so nothing stopped us automatically; setting NVDA to off or beeps left the
+      character echo talking. Worse, it made a silenced main voice look like a broken
+      add-on and cost an evening chasing the wrong cause - the speech mode check in
+      NVDA's speak() sits AFTER filter_speechSequence, so our filter still sees every
+      sequence while nothing is spoken, and nothing is logged.
+- [x] **Do not free memory an async WinRT call is still using.** Done, and it was
+      crashing NVDA. Three separate faults: the SSML string was freed the moment
+      `SynthesizeSsmlToStreamAsync` returned; `_await` abandoned operations that outran
+      its timeout, after which the caller released the buffer `ReadAsync` was writing
+      into; and `_doSetVoice` leaked the voice collection on every successful change.
+      Symptom was `nvda.exe` dying in `MSTTSEngine_OneCore.dll` with `0xc0000409` after a
+      long session, with no clean shutdown and nothing in NVDA's log.
+- [ ] **Confirm the crash is actually gone.** The fixes are sound, but the failure took
+      hours to appear, so one quiet session does not prove anything. If it recurs, get the
+      faulting module from Windows Event Viewer again - NVDA's own log will not show it.
 - [ ] **Follow the output device.** `config.conf["audio"]["outputDevice"]` is read once
       when a player is created. Change NVDA's audio device and our streams keep playing to
       the old one.

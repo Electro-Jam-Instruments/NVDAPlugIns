@@ -30,30 +30,31 @@ except NameError:
 #: Order the stream selector cycles through. MAIN is NVDA's own voice, included so one
 #: selector covers everything rather than the user having to remember which controls
 #: live where.
-STREAMS = (Stream.MAIN, Stream.CHARS, Stream.ERRORS)
+STREAMS = (Stream.MAIN, Stream.CHARS, Stream.ANNOTATIONS, Stream.ERRORS)
 
 
 def _streamLabel(stream):
+    """The one name for a stream.
+
+    Used both as the selector's value and as the prefix on every slot below it, so there
+    is a single word per stream. Two vocabularies meant the selector said "main voice"
+    and so did the voice slot - indistinguishable by ear.
+    """
     return {
         # Translators: The main NVDA voice, in the settings ring stream selector.
-        Stream.MAIN: _("main voice"),
-        # Translators: The typed character stream, in the settings ring stream selector.
-        Stream.CHARS: _("typed characters"),
-        # Translators: The typing error stream, in the settings ring stream selector.
-        Stream.ERRORS: _("typing errors"),
+        Stream.MAIN: _("main"),
+        # Translators: The typed character stream, in the settings ring.
+        Stream.CHARS: _("characters"),
+        # Translators: The stream carrying NVDA's spoken notes about a marked word.
+        Stream.ANNOTATIONS: _("notes"),
+        # Translators: The error alert sound stream, in the settings ring. Named for
+        # what it is - a sound - to distinguish it from the spoken notes.
+        Stream.ERRORS: _("alert"),
     }.get(stream, str(stream))
 
 
 def _streamWord(stream):
-    """Short form, used to name the slots after the stream they act on."""
-    return {
-        # Translators: Short name for the main voice, used in settings ring slot names.
-        Stream.MAIN: _("main"),
-        # Translators: Short name for the typed character stream, in ring slot names.
-        Stream.CHARS: _("characters"),
-        # Translators: Short name for the typing error stream, in ring slot names.
-        Stream.ERRORS: _("errors"),
-    }.get(stream, str(stream))
+    return _streamLabel(stream)
 
 
 def _panLabel(pan):
@@ -127,7 +128,7 @@ class _PluginSetting(SynthSetting):
         character voice like everything else about that stream - hearing it in the main
         voice is exactly the confusion this routing exists to avoid.
         """
-        return self.stream is Stream.CHARS
+        return self._plugin.streamHasVoice(self.stream)
 
     def _announce(self, value):
         """Speak the change through the stream being adjusted, not the main voice.
@@ -141,7 +142,7 @@ class _PluginSetting(SynthSetting):
             return value
         spoken = "%s %s" % (self.dynamicName, value)
         try:
-            if self._plugin.announceThroughChar(spoken):
+            if self._plugin.announceThroughStream(self.stream, spoken):
                 # Said it ourselves; keep NVDA's main voice quiet about this one.
                 self._plugin.suppressText(spoken)
         except Exception:  # noqa: BLE001
@@ -197,7 +198,7 @@ class StreamSetting(_PluginSetting):
         super().__init__(
             plugin,
             # Translators: Label for the stream selector in the settings ring.
-            _numeric("stfStream", _("Spatial stream"), 0, 0, len(STREAMS) - 1, 1, 1),
+            _numeric("stfStream", _("stream"), 0, 0, len(STREAMS) - 1, 1, 1),
         )
 
     def _get_value(self):
@@ -214,7 +215,7 @@ class PanSetting(_PluginSetting):
     """Stereo position of the selected stream."""
 
     #: NVDA's own voice is not ours to move - we do not own its player.
-    appliesTo = (Stream.CHARS, Stream.ERRORS)
+    appliesTo = (Stream.CHARS, Stream.ANNOTATIONS, Stream.ERRORS)
 
     def __init__(self, plugin):
         super().__init__(
@@ -296,7 +297,7 @@ class SpeedSetting(_PluginSetting):
     has no speed.
     """
 
-    appliesTo = (Stream.MAIN, Stream.CHARS)
+    appliesTo = (Stream.MAIN, Stream.CHARS, Stream.ANNOTATIONS)
 
     def __init__(self, plugin):
         super().__init__(
@@ -310,19 +311,19 @@ class SpeedSetting(_PluginSetting):
     def _get_value(self):
         if self.stream is Stream.MAIN:
             return self._plugin.getMainRate()
-        return self._plugin.getCharRate()
+        return self._plugin.getStreamRate(self.stream)
 
     def _set_value(self, value):
         if self.stream is Stream.MAIN:
             self._plugin.setMainRate(int(value))
         else:
-            self._plugin.setCharRate(int(value))
+            self._plugin.setStreamRate(self.stream, int(value))
 
 
 class PitchSetting(_PluginSetting):
     """Pitch of the selected stream, 0-100."""
 
-    appliesTo = (Stream.MAIN, Stream.CHARS)
+    appliesTo = (Stream.MAIN, Stream.CHARS, Stream.ANNOTATIONS)
 
     def __init__(self, plugin):
         super().__init__(
@@ -336,19 +337,19 @@ class PitchSetting(_PluginSetting):
     def _get_value(self):
         if self.stream is Stream.MAIN:
             return self._plugin.getMainPitch()
-        return self._plugin.getCharPitch()
+        return self._plugin.getStreamPitch(self.stream)
 
     def _set_value(self, value):
         if self.stream is Stream.MAIN:
             self._plugin.setMainPitch(int(value))
         else:
-            self._plugin.setCharPitch(int(value))
+            self._plugin.setStreamPitch(self.stream, int(value))
 
 
 class VoiceSetting(_PluginSetting):
     """Which voice the selected stream uses."""
 
-    appliesTo = (Stream.MAIN, Stream.CHARS)
+    appliesTo = (Stream.MAIN, Stream.CHARS, Stream.ANNOTATIONS)
 
     def __init__(self, plugin):
         super().__init__(
@@ -362,7 +363,7 @@ class VoiceSetting(_PluginSetting):
     def _voices(self):
         if self.stream is Stream.MAIN:
             return self._plugin.getMainVoices()
-        return self._plugin.getCharVoices()
+        return self._plugin.getStreamVoices(self.stream)
 
     def _get_max(self):
         return max(0, len(self._voices()) - 1)
@@ -373,7 +374,7 @@ class VoiceSetting(_PluginSetting):
     def _get_value(self):
         if self.stream is Stream.MAIN:
             return self._plugin.getMainVoiceIndex()
-        return self._plugin.getCharVoiceIndex()
+        return self._plugin.getStreamVoiceIndex(self.stream)
 
     def _set_value(self, value):
         voices = self._voices()
@@ -383,7 +384,7 @@ class VoiceSetting(_PluginSetting):
         if self.stream is Stream.MAIN:
             self._plugin.setMainVoiceIndex(index)
         else:
-            self._plugin.setCharVoiceIndex(index)
+            self._plugin.setStreamVoiceIndex(self.stream, index)
 
     def _getReportValue(self, val):
         voices = self._voices()
@@ -418,7 +419,7 @@ class RateBoostSetting(_PluginToggle):
     choice is as useful for the character voice as for the main one.
     """
 
-    appliesTo = (Stream.MAIN, Stream.CHARS)
+    appliesTo = (Stream.MAIN, Stream.CHARS, Stream.ANNOTATIONS)
 
     def __init__(self, plugin):
         super().__init__(
@@ -433,14 +434,14 @@ class RateBoostSetting(_PluginToggle):
     def _get_value(self):
         if self.stream is Stream.MAIN:
             return 1 if self._plugin.getMainRateBoost() else 0
-        return 1 if self._plugin.getCharRateBoost() else 0
+        return 1 if self._plugin.getStreamRateBoost(self.stream) else 0
 
     def _set_value(self, value):
         enable = bool(int(value))
         if self.stream is Stream.MAIN:
             self._plugin.setMainRateBoost(enable)
         else:
-            self._plugin.setCharRateBoost(enable)
+            self._plugin.setStreamRateBoost(self.stream, enable)
 
 
 class PunctuationSetting(_PluginToggle):
@@ -452,14 +453,14 @@ class PunctuationSetting(_PluginToggle):
     says it cannot.
     """
 
-    appliesTo = (Stream.MAIN, Stream.CHARS)
+    appliesTo = (Stream.MAIN, Stream.CHARS, Stream.ANNOTATIONS)
 
     @property
     def applicable(self):
         if self.stream is Stream.MAIN:
             return self._plugin.mainSupportsPunctuation()
         if self.stream is Stream.CHARS:
-            return self._plugin.charSupportsPunctuation()
+            return self._plugin.streamSupportsPunctuation(self.stream)
         return False
 
     def __init__(self, plugin):
@@ -475,14 +476,14 @@ class PunctuationSetting(_PluginToggle):
     def _get_value(self):
         if self.stream is Stream.MAIN:
             return 1 if self._plugin.getMainPunctuation() else 0
-        return 1 if self._plugin.getCharPunctuation() else 0
+        return 1 if self._plugin.getStreamPunctuation(self.stream) else 0
 
     def _set_value(self, value):
         enable = bool(int(value))
         if self.stream is Stream.MAIN:
             self._plugin.setMainPunctuation(enable)
         else:
-            self._plugin.setCharPunctuation(enable)
+            self._plugin.setStreamPunctuation(self.stream, enable)
 
 
 class SpatialSettingsRing(SynthSettingsRing):
@@ -523,7 +524,7 @@ class SpatialSettingsRing(SynthSettingsRing):
             return name
         try:
             spoken = "%s %s" % (name, self.currentSettingValue)
-            if setting._plugin.announceThroughChar(spoken):
+            if setting._plugin.announceThroughStream(setting.stream, spoken):
                 setting._plugin.suppressText(spoken)
         except Exception:  # noqa: BLE001
             log.error("Spatial Typing Feedback: error announcing slot move", exc_info=True)

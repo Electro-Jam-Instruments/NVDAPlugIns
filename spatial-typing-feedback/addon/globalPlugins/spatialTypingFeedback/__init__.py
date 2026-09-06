@@ -16,6 +16,7 @@ import sys
 import time
 
 import addonHandler
+import api
 import config
 import globalPluginHandler
 import globalVars
@@ -27,7 +28,7 @@ import ui
 from logHandler import log
 from scriptHandler import script
 
-from . import _config, _ring
+from . import _config, _ring, _streams
 from ._audio import PannedPlayer
 from ._echo import EchoInterceptor
 from ._errors import ErrorAlertInterceptor
@@ -83,11 +84,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self._dormantReason = None
         self._voiceError = None
         self.engineName = None
+        self._annotationVoice = None
+        self._annotationMode = 0
         self._cancelHookInstalled = False
         self._speechFilterInstalled = False
         self._gestureHookInstalled = False
         self._suppressUntil = None
         self._suppressText = None
+        #: NVDA's wording for the spelling and grammar markers, read once.
+        self._annotationTexts = None
         self._originalRing = None
         self.selectedStreamIndex = 0
         self._lastErrorWave = None
@@ -117,7 +122,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         # Errors need no voice at all - just a wave file at a position.
         self._errorPlayer = self._makePlayer("errors", ERROR_ALERT_STREAM)
         self._errors = ErrorAlertInterceptor(
-            self._errorPlayer, onWavePath=self._noteErrorWave
+            self._errorPlayer,
+            onWavePath=self._noteErrorWave,
+            positionSequenceSounds=bool(self._annotationMode & 2),
+            shouldPlay=self.shouldSpeak,
         )
         self._errors.install()
 
@@ -126,10 +134,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         # depending on a second token being distinct from the first.
         self._charPlayer = self._makePlayer("chars", CHAR_ECHO_STREAM)
 
+        mode = _config.get("annotationMode", 0)
+        self._annotationMode = mode
+        if mode:
+            log.info("Spatial Typing Feedback: annotation mode %d" % mode)
+        if mode & 1:
+            self._annotationVoice = self._makeAnnotationVoice()
+            if self._annotationVoice is not None:
+                self.setUpVoicedStream(Stream.ANNOTATIONS)
         voice = self._makeSecondaryVoice()
         if voice is not None:
             self._voice = voice
-            self._setUpCharVoice(voice)
+            self.setUpVoicedStream(Stream.CHARS)
             # Completed words stay with NVDA's main voice: it already has the user's
             # rate and rate boost, and the word echo was never the stream in the way.
             onWord = None if WORD_ECHO_USES_MAIN_VOICE else self._speakWord
@@ -178,6 +194,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.engineName = None
         return None
 
+    def _makeAnnotationVoice(self):
+        """A separate synthesizer for the spelling and grammar annotations.
+
+        Its own instance rather than sharing the character voice, so an annotation can
+        play at the same time as typing rather than queueing behind it. Possible only
+        because we activate SpeechSynthesizer ourselves; NVDA's wrapper allows one.
+
+        Failure is not fatal - without it the annotations simply stay with the main
+        voice, which is what NVDA does today.
+        """
+        voice = WinRTVoice("errors")
+        if not voice.initialize():
+            log.warning(
+                "Spatial Typing Feedback: no voice for error annotations (%s); they stay "
+                "with the main voice" % voice.lastError,
+            )
+            return None
+        pan, _vol = _config.panAndVolume(Stream.ANNOTATIONS)
+        voice.player.setPosition(pan, self.streamVolume(Stream.ANNOTATIONS))
+        # Match the main voice: these are NVDA's own words, not ours. Sharing a voice
+        # with NVDA is fine - three instances on one voice all produce audio.
+        synth = self._synth()
+        if synth is not None:
+            voiceId = getattr(synth, "voice", None)
+            if voiceId:
+                voice.matchVoice(voiceId)
+        return voice
+
     def _makePlayer(self, name, stream):
         pan, vol = _config.panAndVolume(stream)
         player = PannedPlayer(name)
@@ -191,10 +235,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         return _ring.STREAMS[self.selectedStreamIndex]
 
     def _playerFor(self, stream):
-        return {
-            Stream.CHARS: self._charPlayer,
-            Stream.ERRORS: self._errorPlayer,
-        }.get(stream)
+        """The player a stream's audio comes out of.
+
+        Voiced streams own their player through the synthesizer, so ask the voice rather
+        than keeping a second mapping that can fall out of step - leaving one stream out
+        of this table silently stopped its volume and pan from being applied at all.
+        """
+        if stream is Stream.CHARS:
+            return self._charPlayer
+        if stream is Stream.ERRORS:
+            return self._errorPlayer
+        voice = self.voiceFor(stream)
+        return voice.player if voice is not None else None
 
     def nvdaSoundVolume(self):
         """The level NVDA plays its own sounds at.
@@ -213,11 +265,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             return 100
 
     def streamVolume(self, stream):
-        """Configured level, resolving the error stream's "follow NVDA" default."""
+        """Configured level, resolving the defaults that are relative to the main voice.
+
+        The alert follows NVDA's own sound volume. The voiced side streams start a fixed
+        step below the main voice, then become independent once set.
+        """
         _pan, vol = _config.panAndVolume(stream)
-        if stream is Stream.ERRORS and vol == _config.UNSET:
+        if vol != _config.UNSET:
+            return vol
+        if stream is Stream.ERRORS:
             return self.nvdaSoundVolume()
-        return vol
+        return max(0, min(100, self.getMainVolume() + _streams.SIDE_VOLUME_OFFSET))
 
     def isFollowingNvdaVolume(self, stream):
         if stream is not Stream.ERRORS:
@@ -230,7 +288,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         if player is None:
             return
         pan, _vol = _config.panAndVolume(stream)
-        player.setPosition(pan, self.streamVolume(stream))
+        volume = self.streamVolume(stream)
+        player.setPosition(pan, volume)
 
     def setStreamPan(self, stream, pan):
         panKey, _volKey = _config.STREAM_KEYS[stream]
@@ -376,68 +435,197 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         except Exception:  # noqa: BLE001
             log.debugWarning("Could not set main voice", exc_info=True)
 
-    def getCharVoices(self):
-        """[(id, displayName)] for our own voice."""
-        if self._voice is None or not hasattr(self._voice, "getAvailableVoiceIds"):
+    # -- per-stream voice settings ------------------------------------------------
+    #
+    # Generic rather than one set of accessors per stream. Two voiced streams already
+    # share every setting; duplicating the accessors would guarantee they drift apart,
+    # and a fifth stream would mean another ten methods.
+
+    def voiceFor(self, stream):
+        """The synthesizer behind a stream, or None if it has no voice."""
+        return {
+            Stream.CHARS: self._voice,
+            Stream.ANNOTATIONS: self._annotationVoice,
+        }.get(stream)
+
+    def streamHasVoice(self, stream):
+        return self.voiceFor(stream) is not None
+
+    def _voiceSetting(self, stream, name, default):
+        value = _config.get(_config.voiceKey(stream, name), default)
+        return default if value == _config.UNSET else value
+
+    def getStreamRate(self, stream):
+        return self._voiceSetting(stream, "Rate", 50)
+
+    def setStreamRate(self, stream, value):
+        _config.set(_config.voiceKey(stream, "Rate"), max(0, min(100, int(value))))
+        self.applyVoiceSettings(stream)
+
+    def getStreamPitch(self, stream):
+        return self._voiceSetting(stream, "Pitch", 50)
+
+    def setStreamPitch(self, stream, value):
+        _config.set(_config.voiceKey(stream, "Pitch"), max(0, min(100, int(value))))
+        self.applyVoiceSettings(stream)
+
+    def getStreamRateBoost(self, stream):
+        return bool(_config.get(_config.voiceKey(stream, "RateBoost"), True))
+
+    def setStreamRateBoost(self, stream, enable):
+        _config.set(_config.voiceKey(stream, "RateBoost"), bool(enable))
+        # The percentage is kept and its meaning widens or narrows, as NVDA does.
+        self.applyVoiceSettings(stream)
+
+    def streamSupportsPunctuation(self, stream):
+        voice = self.voiceFor(stream)
+        return bool(getattr(voice, "supportsPunctuationSilence", False))
+
+    def getStreamPunctuation(self, stream):
+        return bool(_config.get(_config.voiceKey(stream, "Punctuation"), True))
+
+    def setStreamPunctuation(self, stream, enable):
+        _config.set(_config.voiceKey(stream, "Punctuation"), bool(enable))
+        voice = self.voiceFor(stream)
+        if voice is not None and hasattr(voice, "setPunctuationSilence"):
+            voice.setPunctuationSilence(enable)
+
+    def getStreamVoices(self, stream):
+        """[(id, displayName)] for a stream's synthesizer."""
+        voice = self.voiceFor(stream)
+        if voice is None or not hasattr(voice, "getAvailableVoiceIds"):
             return []
         try:
             return [
-                (vid, self._voiceDisplayName(vid))
-                for vid, _index in self._voice.getAvailableVoiceIds()
+                (vid, self._voiceDisplayName(voice, vid))
+                for vid, _index in voice.getAvailableVoiceIds()
             ]
         except Exception:  # noqa: BLE001
             return []
 
-    def _voiceDisplayName(self, voiceId):
-        if self._voice is not None and hasattr(self._voice, "getVoiceDisplayName"):
-            name = self._voice.getVoiceDisplayName(voiceId)
-            if name:
-                return name
+    def _voiceDisplayName(self, voice, voiceId):
         """A speakable name for a voice ID.
 
-        OneCore IDs are registry paths ending in e.g. MSTTS_V110_enUS_ZiraM, which is
-        unusable read aloud. Prefer the main synth's own display name where the voice
-        matches, since that is what the user already knows it as.
+        The engine reports proper display names; the raw IDs are registry paths and
+        unusable read aloud.
         """
+        if hasattr(voice, "getVoiceDisplayName"):
+            name = voice.getVoiceDisplayName(voiceId)
+            if name:
+                return name
         for entry in self.getMainVoices():
             if entry[0] == voiceId:
                 return entry[1]
         return voiceId.rstrip(chr(92)).split(chr(92))[-1]
 
-    def getCharVoiceIndex(self):
-        wanted = _config.get("charVoice", "")
-        for i, entry in enumerate(self.getCharVoices()):
+    def getStreamVoiceIndex(self, stream):
+        wanted = _config.get(_config.voiceKey(stream, "Voice"), "")
+        for i, entry in enumerate(self.getStreamVoices(stream)):
             if entry[0] == wanted:
                 return i
         return 0
 
-    def setCharVoiceIndex(self, index):
-        voices = self.getCharVoices()
-        if not voices or self._voice is None:
+    def setStreamVoiceIndex(self, stream, index):
+        voices = self.getStreamVoices(stream)
+        voice = self.voiceFor(stream)
+        if not voices or voice is None:
             return
         voiceId = voices[index][0]
         try:
-            self._voice.matchVoice(voiceId)
-            _config.set("charVoice", voiceId)
-            # Changing voice can reset prosody, so put the speed back.
-            self._applyCharVoiceSettings()
+            voice.matchVoice(voiceId)
+            _config.set(_config.voiceKey(stream, "Voice"), voiceId)
+            # Changing voice can reset prosody, so put the settings back.
+            self.applyVoiceSettings(stream)
         except Exception:  # noqa: BLE001
-            log.debugWarning("Could not set the character voice", exc_info=True)
+            log.debugWarning("Could not set the voice for %s" % stream, exc_info=True)
 
-    def announceThroughChar(self, text):
-        """Speak a ring announcement using the character voice, at its own position.
+    def applyVoiceSettings(self, stream):
+        """Push a stream's stored speed and pitch onto its synthesizer."""
+        voice = self.voiceFor(stream)
+        if voice is None:
+            return
+        try:
+            voice.setRatePercent(self.getStreamRate(stream), self.getStreamRateBoost(stream))
+            voice.setPitchPercent(self.getStreamPitch(stream))
+        except Exception:  # noqa: BLE001
+            log.error("Spatial Typing Feedback: could not apply voice settings", exc_info=True)
+
+    def _seedStreamFromMain(self, stream, synth):
+        """Give a voiced stream a sensible starting point, once.
+
+        Only when nothing has been chosen. After that it is independent - the point is
+        that it can be set where you want without the main voice dragging it back.
+        """
+        rateKey = _config.voiceKey(stream, "Rate")
+        if _config.get(rateKey, _config.UNSET) == _config.UNSET:
+            try:
+                section = config.conf["speech"].get(getattr(synth, "name", "") or "")
+                rate = int(section.get("rate", 50)) if section else 50
+                rateBoost = bool(section.get("rateBoost", False)) if section else False
+            except Exception:  # noqa: BLE001
+                rate, rateBoost = 50, False
+            # Our scale always spans the full range, so a non-boosted main rate has to be
+            # converted rather than copied straight across.
+            maxRate = 6.0 if rateBoost else 1.5
+            raw = float(rate) / 100 * (maxRate - 0.5) + 0.5
+            seeded = int(round((raw - 0.5) / (6.0 - 0.5) * 100))
+            _config.set(rateKey, max(0, min(100, seeded)))
+        volKey = _config.STREAM_KEYS[stream][1]
+        if _config.get(volKey, _config.UNSET) == _config.UNSET:
+            _config.set(
+                volKey,
+                max(0, min(100, self.getMainVolume() + _streams.SIDE_VOLUME_OFFSET)),
+            )
+        pitchKey = _config.voiceKey(stream, "Pitch")
+        if _config.get(pitchKey, _config.UNSET) == _config.UNSET:
+            try:
+                _config.set(pitchKey, int(getattr(synth, "pitch", 50)))
+            except Exception:  # noqa: BLE001
+                _config.set(pitchKey, 50)
+
+    def setUpVoicedStream(self, stream):
+        """Prepare a voiced stream: its voice, speed, pitch and punctuation."""
+        voice = self.voiceFor(stream)
+        if voice is None:
+            return
+        synth = self._synth()
+        if synth is not None:
+            self._seedStreamFromMain(stream, synth)
+        saved = _config.get(_config.voiceKey(stream, "Voice"), "")
+        if saved:
+            voice.matchVoice(saved)
+        elif synth is not None:
+            voiceId = getattr(synth, "voice", None)
+            if voiceId:
+                voice.matchVoice(voiceId)
+                _config.set(_config.voiceKey(stream, "Voice"), voiceId)
+        self.applyVoiceSettings(stream)
+        if hasattr(voice, "setPunctuationSilence"):
+            voice.setPunctuationSilence(self.getStreamPunctuation(stream))
+
+    def playerForVoicedStream(self, stream):
+        """Where a voiced stream's speech goes."""
+        if stream is Stream.CHARS:
+            return self._charPlayer
+        voice = self.voiceFor(stream)
+        return voice.player if voice is not None else None
+
+    def announceThroughStream(self, stream, text):
+        """Speak a ring announcement in the voice of the stream being tuned.
+
+        Adjusting a voice while listening to a different one - different voice, place and
+        speed - tells you nothing about what you are changing. The announcement is the
+        sample.
 
         Returns True if it was handled, so the caller knows to silence the main voice.
         """
-        if self._voice is None or self._charPlayer is None:
-            log.warning(
-                "Spatial Typing Feedback: cannot announce through the character voice "
-                "(voice=%r player=%r)" % (self._voice, self._charPlayer),
-            )
+        voice = self.voiceFor(stream)
+        player = self.playerForVoicedStream(stream)
+        if voice is None or player is None:
             return False
         try:
-            self._voice.speak(text, self._charPlayer, kind="ui", interrupt=True)
-            log.info("Spatial Typing Feedback: announced %r via character voice" % text)
+            voice.speak(text, player, kind="ui", interrupt=True)
+            log.info("Spatial Typing Feedback: announced %r via %s" % (text, stream.value))
             return True
         except Exception:  # noqa: BLE001
             log.error("Spatial Typing Feedback: could not announce change", exc_info=True)
@@ -454,7 +642,71 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self._suppressText = text
         self._suppressUntil = time.time() + 0.5
 
+    def _errorAnnotations(self):
+        """NVDA's own wording for the spelling and grammar markers.
+
+        Read from NVDA's translation catalogue rather than ours - builtins._ stays bound
+        to NVDA's domain, while addonHandler.initTranslation rebinds _ inside this module
+        to the add-on's. Matching on our own translation would fail in every language but
+        English.
+        """
+        if self._annotationTexts is None:
+            try:
+                import builtins
+
+                translate = builtins._
+                self._annotationTexts = {
+                    translate("spelling error"),
+                    translate("out of spelling error"),
+                    translate("grammar error"),
+                    translate("out of grammar error"),
+                }
+            except Exception:  # noqa: BLE001
+                log.debugWarning("Could not read NVDA's error wording", exc_info=True)
+                self._annotationTexts = set()
+        return self._annotationTexts
+
+    def _moveAnnotationsToErrorStream(self, speechSequence):
+        """Take "spelling error" and friends out of the sentence and speak them left.
+
+        They describe an error rather than forming part of the text, so they belong with
+        the other error feedback. Returns the sequence with them removed.
+
+        Only exact matches are taken, and only when there is somewhere to put them - if
+        the annotation voice is unavailable the strings are left alone rather than
+        silently dropped.
+        """
+        if not (self._annotationMode & 2) or not self.shouldSpeak():
+            return speechSequence
+        # In filter-only mode there is no annotation voice, so borrow the character one.
+        # That isolates the filter from the extra-synthesizer question.
+        voice = self._annotationVoice or self._voice
+        player = (
+            self._annotationVoice.player if self._annotationVoice is not None
+            else self._charPlayer
+        )
+        if voice is None or player is None:
+            return speechSequence
+        annotations = self._errorAnnotations()
+        if not annotations:
+            return speechSequence
+        found = [
+            item for item in speechSequence
+            if isinstance(item, str) and item.strip() in annotations
+        ]
+        if not found:
+            return speechSequence
+        remaining = [item for item in speechSequence if item not in found]
+        for text in found:
+            try:
+                voice.speak(text, player, kind="annotation")
+            except Exception:  # noqa: BLE001
+                log.error("Spatial Typing Feedback: could not speak annotation", exc_info=True)
+                return speechSequence
+        return remaining
+
     def _filterSpeech(self, speechSequence, **kwargs):
+        speechSequence = self._moveAnnotationsToErrorStream(speechSequence)
         wanted = self._suppressText
         if not wanted:
             return speechSequence
@@ -494,94 +746,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             log.debugWarning("Error unregistering the speech filter", exc_info=True)
         self._speechFilterInstalled = False
 
-    def applyRate(self):
-        """Re-apply the character voice's speed and pitch."""
-        self._applyCharVoiceSettings()
-
-    def _setUpCharVoice(self, voice):
-        """Prepare the character voice: its own voice, speed and pitch.
-
-        Independent of the main voice by design. The only inheritance is a one-time seed
-        so it does not start somewhere absurd.
-        """
-        synth = self._synth()
-        if synth is not None:
-            self._seedCharSettingsFromMain(synth)
-        savedVoice = _config.get("charVoice", "")
-        if savedVoice:
-            voice.matchVoice(savedVoice)
-        elif synth is not None:
-            # Nothing chosen yet: start on the same voice as the main one.
-            voiceId = getattr(synth, "voice", None)
-            if voiceId:
-                voice.matchVoice(voiceId)
-                _config.set("charVoice", voiceId)
-        self._applyCharVoiceSettings()
-        if hasattr(voice, "setPunctuationSilence"):
-            voice.setPunctuationSilence(self.getCharPunctuation())
-
-    def _seedCharSettingsFromMain(self, synth):
-        """Give the character voice a sensible starting point, once.
-
-        Only when nothing has been chosen yet. After that it is independent: the whole
-        point is that you can set it where you want without the main voice dragging it
-        back.
-        """
-        if _config.get("charRate", _config.UNSET) == _config.UNSET:
-            try:
-                section = config.conf["speech"].get(getattr(synth, "name", "") or "")
-                rate = int(section.get("rate", 50)) if section else 50
-                rateBoost = bool(section.get("rateBoost", False)) if section else False
-            except Exception:  # noqa: BLE001
-                rate, rateBoost = 50, False
-            # Our scale is always the full 0.5x-6.0x span, so a non-boosted main rate has
-            # to be converted rather than copied straight across.
-            maxRate = 6.0 if rateBoost else 1.5
-            raw = float(rate) / 100 * (maxRate - 0.5) + 0.5
-            seeded = int(round((raw - 0.5) / (6.0 - 0.5) * 100))
-            _config.set("charRate", max(0, min(100, seeded)))
-            log.info(
-                "Spatial Typing Feedback: seeded character speed to %d "
-                "(main rate=%s rateBoost=%s -> %.2fx)"
-                % (_config.get("charRate", 50), rate, rateBoost, raw),
-            )
-        if _config.get("charPitch", _config.UNSET) == _config.UNSET:
-            try:
-                _config.set("charPitch", int(getattr(synth, "pitch", 50)))
-            except Exception:  # noqa: BLE001
-                _config.set("charPitch", 50)
-
-    def getCharRate(self):
-        value = _config.get("charRate", _config.UNSET)
-        return 50 if value == _config.UNSET else value
-
-    def setCharRate(self, value):
-        _config.set("charRate", max(0, min(100, int(value))))
-        self._applyCharVoiceSettings()
-
-    def getCharPitch(self):
-        value = _config.get("charPitch", _config.UNSET)
-        return 50 if value == _config.UNSET else value
-
-    def setCharPitch(self, value):
-        _config.set("charPitch", max(0, min(100, int(value))))
-        self._applyCharVoiceSettings()
-
-    def _applyCharVoiceSettings(self):
-        """Push the stored speed and pitch onto our voice."""
-        if self._voice is None:
-            return
-        try:
-            boost = self.getCharRateBoost()
-            if hasattr(self._voice, "setRatePercent"):
-                self._voice.setRatePercent(self.getCharRate(), boost)
-                self._voice.setPitchPercent(self.getCharPitch())
-            else:
-                self._voice.setRate(self.getCharRate(), boost)
-                self._voice.setPitch(self.getCharPitch())
-        except Exception:  # noqa: BLE001
-            log.error("Spatial Typing Feedback: could not apply voice settings", exc_info=True)
-
     def getMainRateBoost(self):
         synth = self._synth()
         try:
@@ -616,15 +780,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         except Exception:  # noqa: BLE001
             log.debugWarning("Could not set main punctuation silence", exc_info=True)
 
-    def getCharRateBoost(self):
-        return bool(_config.get("charRateBoost", True))
-
-    def setCharRateBoost(self, enable):
-        _config.set("charRateBoost", bool(enable))
-        # Keep the speed percentage and let its meaning widen or narrow, which is what
-        # NVDA does for the main voice.
-        self._applyCharVoiceSettings()
-
     def mainSupportsPunctuation(self):
         synth = self._synth()
         if synth is None:
@@ -633,17 +788,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             return bool(getattr(synth, "supportsPunctuationSilence", False))
         except Exception:  # noqa: BLE001
             return False
-
-    def charSupportsPunctuation(self):
-        return bool(getattr(self._voice, "supportsPunctuationSilence", False))
-
-    def getCharPunctuation(self):
-        return bool(_config.get("charPunctuation", True))
-
-    def setCharPunctuation(self, enable):
-        _config.set("charPunctuation", bool(enable))
-        if self._voice is not None and hasattr(self._voice, "setPunctuationSilence"):
-            self._voice.setPunctuationSilence(enable)
 
     def getMainPitch(self):
         synth = self._synth()
@@ -731,6 +875,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         if self._voice is not None:
             self._voice.terminate()
             self._voice = None
+        if self._annotationVoice is not None:
+            self._annotationVoice.terminate()
+            self._annotationVoice = None
         for player in (self._charPlayer, self._errorPlayer):
             if player is not None:
                 player.terminate()
@@ -748,8 +895,37 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
     # -- speech routing ---------------------------------------------------------
 
+    def shouldSpeak(self):
+        """Whether our voices may speak right now.
+
+        Our audio bypasses NVDA's speak(), so nothing stops us automatically. Silencing
+        the screen reader has to silence us too - anything else is both wrong and
+        confusing, since a quiet main voice next to a chattering echo looks exactly like
+        this add-on being broken.
+
+        Covers speech mode (off, beeps, on-demand) and sleep mode, which is how NVDA is
+        told to stay out of the way in self-voicing applications.
+        """
+        try:
+            mode = speech.getState().speechMode
+            if mode in (speech.SpeechMode.off, speech.SpeechMode.beeps):
+                return False
+            if mode == speech.SpeechMode.onDemand:
+                # On demand means speak only when explicitly asked. Typing echo is not
+                # an explicit request.
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            focus = api.getFocusObject()
+            if focus is not None and focus.sleepMode:
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
     def _speakChar(self, text):
-        if self._voice is None:
+        if self._voice is None or not self.shouldSpeak():
             return
         # Interrupt, matching NVDA's own speechInterruptForCharacters. Synthesis takes
         # longer than a fast typist takes to reach the next key, so queueing every
@@ -766,8 +942,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         on talking over the silence - and the user has no way to shut them up.
         """
         try:
-            if self._voice is not None:
-                self._voice.cancel()
+            for voice in (self._voice, self._annotationVoice):
+                if voice is not None:
+                    voice.cancel()
             for player in (self._charPlayer, self._errorPlayer):
                 if player is not None:
                     player.stop()

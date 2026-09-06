@@ -145,7 +145,7 @@ class SapiVoice(object):
 
     # -- voice parameters -------------------------------------------------------
 
-    def getAvailableVoiceNames(self):
+    def _getAvailableVoiceNames(self):
         if self._voice is None:
             return []
         try:
@@ -155,25 +155,25 @@ class SapiVoice(object):
             log.debugWarning("Error listing SAPI voices", exc_info=True)
             return []
 
-    def matchVoice(self, oneCoreVoiceId):
+    def matchVoice(self, voiceId):
         """Pick the SAPI voice closest to the main synth's voice.
 
         Separation is meant to be positional, not timbral, so the nearest available
         match beats an arbitrary default.
         """
-        if self._voice is None or not oneCoreVoiceId:
+        if self._voice is None or not voiceId:
             return False
         # Exact match first: the caller may be handing back one of our own descriptions.
         try:
             tokens = self._voice.GetVoices()
             for i in range(tokens.Count):
                 token = tokens.Item(i)
-                if token.GetDescription() == oneCoreVoiceId:
+                if token.GetDescription() == voiceId:
                     self._voice.Voice = token
                     return True
         except Exception:  # noqa: BLE001
             log.debugWarning("Error matching SAPI voice by description", exc_info=True)
-        keyword = voiceKeywordFromOneCoreId(oneCoreVoiceId)
+        keyword = voiceKeywordFromOneCoreId(voiceId)
         if not keyword:
             return False
         try:
@@ -192,7 +192,7 @@ class SapiVoice(object):
             return False
         log.info(
             "Spatial Typing Feedback: no SAPI voice matching %r; using the default. "
-            "Available: %s" % (keyword, self.getAvailableVoiceNames()),
+            "Available: %s" % (keyword, self._getAvailableVoiceNames()),
         )
         return False
 
@@ -272,6 +272,10 @@ class SapiVoice(object):
         except Exception:  # noqa: BLE001
             log.debugWarning("Error listing SAPI voices", exc_info=True)
             return []
+
+    def getVoiceDisplayName(self, voiceId):
+        """Matching WinRTVoice. SAPI has no separate ID, so the name is the ID."""
+        return voiceId or None
 
     # -- speaking ---------------------------------------------------------------
 

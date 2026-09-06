@@ -28,13 +28,35 @@ _ERROR_PAN, _ERROR_VOL = LAYOUT[Stream.ERRORS]
 CONFIG_SPEC = {
     "enabled": "boolean(default=True)",
     "charPan": "integer(default=%d, min=%d, max=%d)" % (_CHAR_PAN, PAN_MIN, PAN_MAX),
-    "charVolume": "integer(default=%d, min=0, max=100)" % _CHAR_VOL,
+    # UNSET means "not chosen yet": seeded from the main voice on first run.
+    "charVolume": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
     "errorPan": "integer(default=%d, min=%d, max=%d)" % (_ERROR_PAN, PAN_MIN, PAN_MAX),
     # -1 means "follow NVDA's own sound volume" rather than an independent level.
     "errorVolume": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
     "charRate": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
     "charPitch": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
     "charVoice": 'string(default="")',
+    "annotationPan": "integer(default=%d, min=%d, max=%d)" % (_ERROR_PAN, PAN_MIN, PAN_MAX),
+    "annotationVolume": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
+    "annotationRate": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
+    "annotationPitch": "integer(default=%d, min=%d, max=100)" % (UNSET, UNSET),
+    "annotationVoice": 'string(default="")',
+    "annotationRateBoost": "boolean(default=True)",
+    "annotationPunctuation": "boolean(default=True)",
+    # Moving NVDA's spelling notes to their own voice silenced the main voice on first
+    # trial and the cause is not yet understood, so this is a diagnostic dial rather than
+    # a plain on/off. The two suspects can be tested one at a time:
+    #
+    #   0  off - nothing is created, nothing is filtered              (default)
+    #   1  voice only - build the extra synthesizer, leave speech alone
+    #   2  filter only - move the notes, but speak them on the character voice
+    #   3  both - the intended feature
+    #
+    # If 1 breaks the main voice it is a synthesizer-instance problem; if 2 breaks it, it
+    # is the speech filter. One restart each rather than one guess.
+    "annotationMode": "integer(default=3, min=0, max=3)",
+    # Logs every speech sequence in and out of our filter. Noisy on purpose.
+    "debugStreams": "boolean(default=False)",
     "charPunctuation": "boolean(default=True)",
     "charRateBoost": "boolean(default=True)",
 }
@@ -43,7 +65,20 @@ CONFIG_SPEC = {
 STREAM_KEYS = {
     Stream.CHARS: ("charPan", "charVolume"),
     Stream.ERRORS: ("errorPan", "errorVolume"),
+    Stream.ANNOTATIONS: ("annotationPan", "annotationVolume"),
 }
+
+#: Config key prefixes for the streams that have a voice. Keeping these in one place is
+#: what stops a new stream needing its own copy of every accessor.
+VOICE_PREFIX = {
+    Stream.CHARS: "char",
+    Stream.ANNOTATIONS: "annotation",
+}
+
+
+def voiceKey(stream, name):
+    """Config key for one of a voiced stream's settings, e.g. (CHARS, "Rate")."""
+    return "%s%s" % (VOICE_PREFIX[stream], name)
 
 
 def initialize():
