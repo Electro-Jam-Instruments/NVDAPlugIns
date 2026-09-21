@@ -44,7 +44,8 @@ ticked off - the design is described in `../architecture.md`.
 - [ ] **Tests for the arithmetic.** Pan law, mono-to-stereo upmix, SSML escaping and the
       rate mapping all run without NVDA and are exactly where a silent bug would hide.
 - [ ] **Paths nobody has exercised**: a non-OneCore main synth, a mono output device, no
-      Windows voices installed, 32-bit NVDA.
+      Windows voices installed, 32-bit NVDA (the 2025.x line the declared minimum allows;
+      NVDA 2026.x is 64-bit).
 
 ## Release
 

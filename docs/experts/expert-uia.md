@@ -10,7 +10,7 @@ General knowledge for Windows UI Automation in NVDA addon development. For Power
 |-----------|---------|
 | Windows | Windows 10/11 |
 | UIA Interface | IUIAutomation6 |
-| Python | 3.11.9 (32-bit, within NVDA) |
+| Python | 3.13 (64-bit, within NVDA 2026.x); 3.11.9 (32-bit, within NVDA 2024.x-2025.x) |
 
 ## When NVDA Uses UIA
 
