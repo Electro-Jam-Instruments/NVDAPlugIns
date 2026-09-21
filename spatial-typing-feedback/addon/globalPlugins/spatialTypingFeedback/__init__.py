@@ -40,7 +40,6 @@ from ._streams import (
     WORD_ECHO_USES_MAIN_VOICE,
     Stream,
 )
-from ._voice import SapiVoice
 from ._winrt import WinRTVoice
 
 try:
@@ -166,26 +165,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         log.info("Spatial Typing Feedback: active")
 
     def _makeSecondaryVoice(self):
-        """Real OneCore if we can get an independent instance, SAPI 5 otherwise.
+        """Our own Windows SpeechSynthesizer, or nothing.
 
-        OneCore is strongly preferred: it is the same engine as the main voice, with the
-        same voices and the same rate boost, so the two streams match and the echo keeps
-        up. SAPI 5 works everywhere but is an older voice build and tops out around
-        three times normal speed.
+        There is deliberately no second engine to fall back to. If the Windows voice
+        will not start, the character stream stays off and typing echo stays with
+        NVDA's main voice - unchanged, rather than replaced by something worse.
         """
         voice = WinRTVoice("echo")
         if voice.initialize():
             self.engineName = "Windows voices"
             return voice
-        log.warning(
+        log.error(
             "Spatial Typing Feedback: Windows SpeechSynthesizer unavailable (%s); "
-            "falling back to SAPI 5" % voice.lastError,
+            "character stream off" % voice.lastError,
         )
         voice.terminate()
-        voice = SapiVoice("echo")
-        if voice.initialize():
-            self.engineName = "SAPI 5"
-            return voice
         self._voiceError = _(
             # Translators: Reported when the add-on could not create its second voice.
             "Secondary voice unavailable, so typing echo is unchanged. "

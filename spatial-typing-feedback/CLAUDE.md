@@ -38,8 +38,8 @@ use-after-free.**
 Always build players with `channels=2` and upmix. The synthesizer returns mono.
 
 ### Probe optional APIs in their own try
-An absent function raising inside the main setup path took down the entire voice and fell
-back to SAPI silently. A probe must never be able to break the path it is probing for.
+An absent function raising inside the main setup path took down the entire voice
+silently. A probe must never be able to break the path it is probing for.
 
 ## Rules
 
@@ -60,10 +60,11 @@ are not sample accurate. Steady-state typing must set it zero times.
 successful voice change leaked the vector and every voice object in it - once per step of
 the ring's Voice setting.
 
-### The two voice engines share one interface
-`_winrt.WinRTVoice` is primary, `_voice.SapiVoice` is the fallback. Every method the
-plugin calls must exist on both with the same signature. Letting them drift apart once
-meant a `TypeError` on every keystroke and no character echo at all.
+### One voice engine, no fallback
+`_winrt.WinRTVoice` is the only engine. If it will not start, the character stream stays
+off and typing echo stays with NVDA's main voice. A SAPI 5 fallback existed and was
+removed on purpose: it was barely exercised, used an older voice build, and broke COM
+threading rules. Do not add a second engine back.
 
 ### Do not reimplement NVDA's echo logic
 `_echo.py` runs NVDA's own `speakTypedCharacters` and swaps the two output functions.

@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1-beta] - not yet tagged
+**On hold - not to be released.** NVDA can still die inside `MSTTSEngine_OneCore.dll`
+after long sessions, and that has to be understood before any beta. When it is, these
+entries move under `## [0.1.1-beta]`, which will be this add-on's first release.
 
-This add-on has not been released yet. 0.1.1-beta will be its first release.
+### Removed
+- **SAPI 5 fallback voice.** If the Windows voice cannot start, the add-on now leaves the
+  character stream off and typing echo stays with NVDA's main voice, and says why. The
+  fallback was barely exercised, used an older voice build, and broke COM threading rules.
 
 ### Fixed
-- **NVDA no longer crashes mid-session.** Three memory-safety faults on the speech
+- **Three faults that could crash NVDA mid-session.** Memory-safety faults on the speech
   path, all the same mistake: treating an asynchronous Windows call as finished when
   it returned. The SSML string was freed while the engine was still reading it; the
   `_await` timeout abandoned operations still in flight and the caller then released

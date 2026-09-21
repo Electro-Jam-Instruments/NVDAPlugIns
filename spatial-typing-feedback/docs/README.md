@@ -17,7 +17,6 @@ Describes what exists, not what was once planned.
 | `_config.py` | Persisted settings; saved on leaving the ring, not on a timer |
 | `_audio.py` | `PannedPlayer`: pan law, mono-to-stereo upmix, channel gains |
 | `_winrt.py` | The character voice - a Windows SpeechSynthesizer we activate ourselves |
-| `_voice.py` | SAPI 5 fallback, same interface |
 | `_echo.py` | Wraps `speech.speakTypedCharacters` |
 | `_errors.py` | `decide_playWaveFile` hook for the typing-error alert |
 | `_ring.py` | Settings ring slots |
@@ -32,7 +31,7 @@ Four things here are not what they appear, and each cost hours to find. Explaine
 2. **SSML prosody rate saturates at 200%.** Larger numbers silently pin the voice at
    maximum, which sounds like a broken mapping.
 3. **Probe optional APIs in their own try.** An absent function raising inside the main
-   setup path took down the whole voice and fell back silently to SAPI.
+   setup path took down the whole voice silently.
 4. **`setVolume` on a mono player raises `E_INVALIDARG`.** Always upmix to stereo first.
 
 ## Testing without NVDA

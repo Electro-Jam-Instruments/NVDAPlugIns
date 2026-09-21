@@ -98,9 +98,10 @@ our own via `RoActivateInstance` and depend on nothing of NVDA's for the voice.
 That removed fragility rather than just being tidier: no DLL version coupling, no reload
 problems, and it gained punctuation-pause control that NVDA's own build cannot offer.
 
-**SAPI 5 remains as a fallback** where no Windows voices exist or activation fails. Its
-interface is deliberately identical - letting the two drift apart once cost an evening of
-silent keystrokes.
+**There is no fallback engine.** If activation fails, the character stream stays off and
+typing echo stays with NVDA's main voice. An earlier SAPI 5 fallback was removed: it was
+barely exercised, used an older voice build, and created its voice on NVDA's main thread
+but spoke from a worker thread, which breaks COM apartment rules.
 
 ---
 

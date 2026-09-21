@@ -6,7 +6,6 @@ case the first sign of it was the user's screen reader misbehaving:
 
   parse      a text-range edit silently deleted a function and broke a try block
   refs       the deleted function was still called from another module
-  parity     the two voice engines drifted, giving a TypeError on every keystroke
   version    a tag was cut that did not match buildVars, publishing a mislabelled build
 
 Run:  python tools/check_addons.py
@@ -18,16 +17,6 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-#: Interchangeable implementations that must stay callable the same way.
-PARITY_PAIRS = [
-    (
-        "spatial-typing-feedback/addon/globalPlugins/spatialTypingFeedback/_winrt.py",
-        "WinRTVoice",
-        "spatial-typing-feedback/addon/globalPlugins/spatialTypingFeedback/_voice.py",
-        "SapiVoice",
-    ),
-]
 
 failures = []
 
@@ -127,42 +116,6 @@ def checkReferences(trees):
     print("  %d references checked" % checked)
 
 
-def publicMethods(path, className):
-    tree = ast.parse(io.open(path, encoding="utf-8").read())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == className:
-            return {
-                m.name: [a.arg for a in m.args.args]
-                for m in node.body
-                if isinstance(m, ast.FunctionDef) and not m.name.startswith("_")
-            }
-    return None
-
-
-def checkParity():
-    """Interchangeable classes must be callable identically.
-
-    A substitute that cannot be called the same way is not a substitute; when these
-    drifted, the fallback voice raised a TypeError on every single keystroke.
-    """
-    print("\n[parity] interchangeable engines share one interface")
-    for aPath, aName, bPath, bName in PARITY_PAIRS:
-        a = publicMethods(os.path.join(ROOT, aPath), aName)
-        b = publicMethods(os.path.join(ROOT, bPath), bName)
-        if a is None or b is None:
-            fail("parity", "could not find %s or %s" % (aName, bName))
-            continue
-        for method in sorted(set(a) | set(b)):
-            if method not in a:
-                fail("parity", "%s defines %s, %s does not" % (bName, method, aName))
-            elif method not in b:
-                fail("parity", "%s defines %s, %s does not" % (aName, method, bName))
-            elif a[method] != b[method]:
-                fail("parity", "%s.%s%s does not match %s.%s%s"
-                     % (aName, method, tuple(a[method]), bName, method, tuple(b[method])))
-        print("  %s / %s: %d methods" % (aName, bName, len(a)))
-
-
 def checkVersions():
     """Each add-on must declare a version, and its changelog should mention it."""
     print("\n[version] buildVars declares a version the changelog knows about")
@@ -198,7 +151,6 @@ def main():
     trees = parseAll()
     if not any(f[0] == "parse" for f in failures):
         checkReferences(trees)
-    checkParity()
     checkVersions()
 
     print("\n" + "=" * 60)
