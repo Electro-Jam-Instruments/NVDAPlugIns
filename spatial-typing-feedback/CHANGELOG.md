@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing tagged yet. Everything below is in the working tree.
+## [0.1.1-beta] - not yet tagged
 
-### Fixed - 0.1.1
+This add-on has not been released yet. 0.1.1-beta will be its first release.
+
+### Fixed
 - **NVDA no longer crashes mid-session.** Three memory-safety faults on the speech
   path, all the same mistake: treating an asynchronous Windows call as finished when
   it returned. The SSML string was freed while the engine was still reading it; the

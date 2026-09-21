@@ -35,14 +35,14 @@ Have an idea? [Open a feature request](https://github.com/Electro-Jam-Instrument
 ### Requirements
 
 - NVDA 2024.1 or later (for testing)
-- Python 3.11 (NVDA's Python version)
-- scons (for building)
+- Python 3.13 for NVDA 2026.x, or 3.11 for NVDA 2024.x-2025.x (NVDA's Python version)
+- scons (for building): `pip install scons`
 
 ### Building a Plugin
 
 ```bash
-cd powerpoint-comments  # or windows-dictation-silence
-scons
+cd powerpoint-comments  # or spatial-typing-feedback, windows-dictation-silence
+scons                   # or: python -m SCons (if scons is not on PATH)
 ```
 
 This creates a `.nvda-addon` file you can install for testing.

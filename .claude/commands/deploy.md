@@ -30,6 +30,16 @@ Example: `/deploy spatial-typing-feedback 0.1.2 Fix crash on voice change`
 - Run `python tools/check_addons.py` - the same static checks as the `Tests` workflow,
   including "buildVars version is mentioned in CHANGELOG.md"
 - If deploying `spatial-typing-feedback`: run `python -m pytest spatial-typing-feedback/tests`
+- Build locally so a broken build is caught before a tag goes out:
+  `(cd {plugin} && python -m SCons -c && python -m SCons)` (or `scons` if it is on PATH).
+  It must end with `Generating Addon {addon_name}-{VERSION}.nvda-addon` and the file must
+  exist. The `.nvda-addon` and generated `addon/manifest.ini` are gitignored, so the
+  working tree stays clean.
+- Check `{plugin}/CHANGELOG.md` has a `## [X.Y.Z-beta]` header (or `## [X.Y.Z]` for stable)
+  holding this release's entries. If it reads `- not yet tagged`, replace that with today's
+  date (YYYY-MM-DD). Commit it with the version update below, or on its own
+  (`git commit -m "Date {plugin} X.Y.Z changelog"`) if there is no version update, and
+  push it before tagging.
 
 ### Version Update (if the requested version differs from buildVars)
 - Update `addon_version` in `{plugin}/buildVars.py` to `X.Y.Z` (no `-beta` suffix - beta is

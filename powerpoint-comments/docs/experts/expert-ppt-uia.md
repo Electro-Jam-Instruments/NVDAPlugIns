@@ -12,7 +12,7 @@ PowerPoint-specific UIA patterns for focusing the Comments pane and task pane el
 | UIA Interface | IUIAutomation6 |
 | NVDA Minimum | 2025.1 |
 | NVDA Tested | 2025.3.2 |
-| Python | 3.11.9 (32-bit, within NVDA) |
+| Python | 3.13 (64-bit, within NVDA 2026.x); 3.11.9 (32-bit, within NVDA 2024.x-2025.x) |
 
 **Note:** User's system runs Windows 11 25H2 (10.0.26200.7309), IUIAutomation6.
 

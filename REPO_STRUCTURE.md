@@ -195,7 +195,7 @@ All plugins use the standard NVDA scons build system:
 
 ```bash
 cd {plugin-folder}
-scons
+scons              # or: python -m SCons (if scons is not on PATH)
 # Output: {addon_name}-{addon_version}.nvda-addon (from buildVars.py)
 ```
 

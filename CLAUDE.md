@@ -24,5 +24,6 @@ Use `/deploy` command for releasing plugin versions. See `.claude/commands/deplo
 All plugins use standard NVDA scons build:
 ```bash
 cd {plugin-folder}
-scons
+scons              # if scons is on PATH
+python -m SCons    # otherwise (the case on the dev machine)
 ```
